@@ -24,37 +24,77 @@ import * as dataTransfer from './data-transfer.js';
 import * as platform from './platform.js';
 import { confirmDanger } from './confirm-dialog.js';
 
-// Set when this environment cannot capture partner speech (see platform.js).
-// Non-null means listening is disabled but the rest of the app works.
+// The platform verdict on partner capture (see platform.js), or null when capture
+// is expected to work. Non-null drives the pre-start warning; it does NOT by
+// itself disable anything — see applyListenAvailability.
 let listeningUnavailable = null;
 
-// Tell the user, visibly, that listening will not work here — and why, and what to
+// Tell the user, visibly, that listening may not work here — and why, and what to
 // do about it. This CANNOT go through ui.setStatus: that element has been
 // visually hidden since v0.5.2, so a message sent there is never seen. That is
 // exactly how the old "Use Chrome or Edge" text managed to be both wrong on iPad
 // and invisible everywhere.
-function showListeningUnavailableNotice(support) {
+//
+// Step 3 of the pre-start SEQUENCE (Ken, July 30 2026), not a notice raised at
+// load. Shown on its own, after the upgrade screen and before the API-key notice,
+// so the pre-start screens never stack on top of each other — the rule set in
+// v0.5.96. `onContinue` advances the chain.
+function showListeningUnavailableNotice(support, onContinue) {
     const box = document.getElementById('listeningPrompt');
-    if (!box) return;
+    if (!box) return onContinue();
     document.getElementById('listeningPromptReason').textContent = support.reason;
     document.getElementById('listeningPromptRemedy').textContent =
         support.remedy + ' Everything else works: you can still speak with the Express Panel and “In my own words”.';
+    document.getElementById('startBtn').hidden = true;      // the panel carries its own proceed control
+    document.getElementById('whatsNewPanel').hidden = true;
     box.hidden = false;
-    document.getElementById('listeningPromptCloseBtn').onclick = () => { box.hidden = true; };
+    document.getElementById('listeningPromptCloseBtn').onclick = () => { box.hidden = true; onContinue(); };
+    ui.setStatus(support.reason + ' ' + support.remedy);   // aria-live, for screen readers
+}
 
-    // Disable the Listen control rather than leaving a button that silently does
-    // nothing when pressed.
-    const listenBtn = document.getElementById('listenBtn');
-    if (listenBtn) {
-        listenBtn.disabled = true;
-        listenBtn.title = support.reason + ' ' + support.remedy;
-    }
+// Disable the Listen control ONLY where there is no recognizer to call at all —
+// never merely because this platform measured unreliable (Ken, July 30 2026:
+// "for now, don't disable the listening function… give Safari every opportunity to
+// surprise us"). The user is warned before they start and then allowed to try; a
+// measurement taken on one build of one iPadOS should not permanently refuse to
+// attempt something Apple may have since fixed. Where the API is genuinely absent
+// there is nothing to attempt, so the button would silently do nothing — that case
+// stays disabled.
+//
+// Practice Mode is exempt even then: that same button never opens the microphone,
+// it cues the AI partner to speak. Rehearsing without a mic matters most precisely
+// on a device that cannot listen, so the disable must not reach it. Re-applied
+// whenever practice starts or ends.
+function applyListenAvailability() {
+    const btn = document.getElementById('listenBtn');
+    if (!btn) return;
+    const noRecognizer = !!listeningUnavailable && listeningUnavailable.apiPresent === false;
+    const blocked = noRecognizer && !practiceMode;
+    btn.disabled = blocked;
+    if (blocked) btn.title = listeningUnavailable.reason + ' ' + listeningUnavailable.remedy;
+    // Not blocked: let the normal renderer put the icon and its tooltip back.
+    // isListening is false on every path that reaches here, so this cannot fire
+    // the start-of-listening chime (which needs a false→true edge).
+    else ui.setListenButtonState(isListening);
 }
 
 // Point-release version shown in Settings → About. Bump alongside the
 // sw.js CACHE_VERSION on every release so beta testers can report exactly
 // which build they're on.
 const APP_VERSION = '0.5.99';
+
+// The exact commit this build came from. Rewritten by the deploy workflow (it
+// substitutes the placeholder below); a copy served from the working tree keeps
+// the placeholder and reports "dev".
+//
+// Why this exists: the version alone can't answer "am I looking at the delivery I
+// just pushed?" — several pushes share one version during a dev cycle, and the
+// version lives in Settings → About, which is unreachable until Start has run. So
+// when start-up is what's broken, there was no way to tell a new build from a
+// cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
+// anything can go wrong.
+const BUILD_STAMP = '9e73383';
+const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
 let isListening = false;
@@ -236,12 +276,7 @@ function initApp() {
     // AI-optional property): the Express Panel and "In my own words" still speak,
     // and turns are still recorded — so this disables listening, not the app.
     const speechSupport = platform.speechRecognitionSupport();
-    if (!speechSupport.usable) {
-        listeningUnavailable = speechSupport;
-        ui.setStatus(speechSupport.reason + ' ' + speechSupport.remedy);
-        showListeningUnavailableNotice(speechSupport);
-        return;
-    }
+    listeningUnavailable = speechSupport.usable ? null : speechSupport;
 
     // Recording indicator: whether the start-of-listening chime is enabled
     // (partner-awareness cue — see chime.js). Applied here so it's active before
@@ -251,15 +286,29 @@ function initApp() {
     // start of the conversation rather than on each one (Ken).
     chime.setOncePerConversation(storage.loadAutoRelisten());
 
-    const savedThreshold = storage.loadSilenceThreshold();
-    stt.setSilenceThreshold(savedThreshold);
-
-    stt.init({
-        onResult: handleSpeechResult,
-        onSilence: handleSilencePeriod,
-        onStatus: handleSttStatus,
-        onPartnerSpeech: handlePartnerResumed
-    });
+    // Wire up capture wherever there is a recognizer to wire — including the
+    // platforms platform.js measured as delivering nothing. That is the whole
+    // point of warning rather than blocking (Ken, July 30 2026): if the button is
+    // live but stt was never initialized, pressing it would do nothing and Safari
+    // could never surprise us. Skipped only where the API is absent, because
+    // `new SpeechRecognition()` would throw.
+    //
+    // Every stt entry point is null-safe when init() never ran (`if (!recognition)
+    // return`), so on that path the rest of the app calls them harmlessly and no
+    // microphone is ever lit. Initialization MUST continue past this point:
+    // everything below — the Start button, the Express Panel, "In my own words",
+    // the keyboard, Settings — is what the notice promises still works, and an
+    // early return here left an iPad Home Screen app with no working controls at
+    // all, Start included (Ken, July 30 2026).
+    if (speechSupport.apiPresent) {
+        stt.setSilenceThreshold(storage.loadSilenceThreshold());
+        stt.init({
+            onResult: handleSpeechResult,
+            onSilence: handleSilencePeriod,
+            onStatus: handleSttStatus,
+            onPartnerSpeech: handlePartnerResumed
+        });
+    }
 
     // Hard backstop: a placeholder must never speak over the user's own statement
     // (a spoken button). If a stray scheduled placeholder fires while the user's TTS
@@ -385,8 +434,13 @@ function initApp() {
         // block over the transcript). Keep the aria-live status for screen readers.
         ui.setStatus('No API key set — open Settings to add your Claude API key');
     }
-    // The visible "no API key" notice is NOT shown here — it's step 3 of the
-    // pre-start sequence (afterWhatsNew), so it never overlaps the upgrade screen.
+    // Neither the "no API key" notice nor the listening notice is shown here —
+    // they are steps 3 and 4 of the pre-start sequence (see handleStart), so they
+    // never overlap the upgrade screen or each other.
+
+    // Last, so a disabled Listen button and its explanatory tooltip survive
+    // ui.applyControlIcons() above (which rewrites the button's label/title).
+    applyListenAvailability();
 }
 
 // --- API key surfaces (Ken, July 2026) -----------------------------------------
@@ -483,15 +537,28 @@ function handleSttStatus(status, detail) {
     }
 }
 
-async function handleStart() {
-    // Check for a newer deployed version when the session starts. If one is
-    // found the worker activates and the controllerchange handler in index.html
-    // reloads the page; when nothing is new this is a cheap no-op.
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistration()
-            .then((reg) => reg && reg.update())
-            .catch(() => { /* update check is best-effort */ });
-    }
+// How long the Start button will wait for storage before going on without it.
+// Generous — this is a stuck-detector, not a performance budget.
+const STORAGE_WARMUP_MS = 6000;
+
+// Resolve `promise`, or give up after `ms` and carry on. Resolves rather than
+// rejects, so callers need no extra error path; a timeout is logged, because a
+// storage layer that stops answering is worth knowing about even though the app
+// survives it.
+function withTimeout(promise, ms, label) {
+    return Promise.race([
+        promise,
+        new Promise((resolve) => setTimeout(() => {
+            try { storage.logError('timeout', `${label} did not finish within ${ms}ms — continuing without it`); } catch { /* best-effort */ }
+            resolve(null);
+        }, ms)),
+    ]);
+}
+
+// Adopt the data folder (or, on iPad, device storage) and reconcile every
+// user-owned file against it: the folder copy wins where it exists, the
+// localStorage cache is promoted where it doesn't (the v0.2.25 rule).
+async function warmUpStorage() {
     try { await storage.restoreDataFolder(); } catch { /* no stored handle yet */ }
     // Reload the worldview profile from the (now-restored) data folder, then
     // reconcile: if answers accumulated only in the localStorage cache (no
@@ -509,14 +576,42 @@ async function handleStart() {
     try { await controlPhrases.load(); } catch { /* keep cached/default phrases */ }
     try { await controlPhrases.syncToFolder(); } catch { /* best-effort */ }
     applyControlPhrases();
+}
+
+async function handleStart() {
+    // Bring the audio context up NOW, while a real tap is in hand. The chime
+    // itself is fired from an async recognizer callback where WebKit would refuse
+    // to start audio (see chime.unlock).
+    chime.unlock();
+    // Check for a newer deployed version when the session starts. If one is
+    // found the worker activates and the controllerchange handler in index.html
+    // reloads the page; when nothing is new this is a cheap no-op.
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration()
+            .then((reg) => reg && reg.update())
+            .catch(() => { /* update check is best-effort */ });
+    }
+    // Warm up storage, but NEVER let it strand the user on the Start screen. Each
+    // call is already try/caught, which covers a rejection — it does not cover a
+    // promise that simply never settles, and a hung storage call here would leave
+    // Start looking like a dead button with nothing on screen and nothing logged.
+    // The data is a nice-to-have at this moment (every module falls back to its
+    // localStorage cache); getting the user into the conversation is not.
+    await withTimeout(warmUpStorage(), STORAGE_WARMUP_MS, 'storage warm-up');
     // Fresh conversation state for this session.
     engine.reset();
     ui.showEngineState(engine.getSnapshot());
     // Pre-start screens run in a strict SEQUENCE, never overlapping (Ken, July 18
     // 2026): Start (greyed screen) → the "What's new" upgrade screen (Close) → the
-    // API-key notice (Continue) → the conversation. Each step hands off to the next
-    // only when dismissed, so the API-key notice never sits on top of the upgrade
-    // screen. Both intermediate screens are optional and skipped when not needed.
+    // listening notice (Continue anyway) → the API-key notice (Close) → the
+    // conversation. Each step hands off to the next only when dismissed, so no two
+    // ever sit on top of each other. All three intermediate screens are optional
+    // and skipped when not needed.
+    //
+    // The listening notice comes BEFORE the API-key one because it is about where
+    // the user opened the app, and its remedy ("open it in Safari instead") is
+    // something they may want to act on before anything else — whereas the API key
+    // can be added at any time from Settings.
     const whatsNewNotes = whatsNew.pending(APP_VERSION);
     if (whatsNewNotes.length) {
         // Step 2 — upgrade screen. The app has already re-rendered post-update, so
@@ -529,14 +624,23 @@ async function handleStart() {
     }
 }
 
-// Step 3 — the API-key notice, shown only when no key is set (informational: the
-// app works without one). "Continue" enters the conversation; "Add an API key"
-// opens Settings. When a key IS set, skip straight into the conversation.
+// Step 3 — the listening notice, shown only where partner capture measured
+// unreliable or absent. Informational: the Listen button stays live anyway (see
+// applyListenAvailability), so this is a heads-up before the user tries, not a
+// refusal. "Continue anyway" advances to step 4.
 function afterWhatsNew() {
+    if (listeningUnavailable) showListeningUnavailableNotice(listeningUnavailable, afterListeningNotice);
+    else afterListeningNotice();
+}
+
+// Step 4 — the API-key notice, shown only when no key is set (informational: the
+// app works without one). "Close" enters the conversation; "Add an API key"
+// opens Settings. When a key IS set, skip straight into the conversation.
+function afterListeningNotice() {
     const hasKey = !!(storage.loadApiKey() || '').trim();
     const prompt = document.getElementById('apiKeyPrompt');
     if (!hasKey && prompt) {
-        document.getElementById('startBtn').hidden = true;   // Continue is the proceed control here
+        document.getElementById('startBtn').hidden = true;   // Close is the proceed control here
         document.getElementById('whatsNewPanel').hidden = true;
         prompt.hidden = false;
     } else {
@@ -545,15 +649,18 @@ function afterWhatsNew() {
 }
 
 // Leave the pre-start sequence and enter the conversation: hide the start block and
-// un-dim the conversation surface. The end of the Start → upgrade → API-key chain.
+// un-dim the conversation surface. The end of the Start → upgrade → listening →
+// API-key chain.
 function finishStart() {
     document.getElementById('startBtn').hidden = false;   // restore for any later start screen
     document.getElementById('apiKeyPrompt').hidden = true;
+    document.getElementById('listeningPrompt').hidden = true;
     document.getElementById('startBlock').classList.add('hidden');
     document.querySelector('main').classList.remove('disabled');
 }
 
 function toggleListening() {
+    chime.unlock();   // a genuine tap — see handleStart
     // Practice Mode: "Start Listening" does NOT open the mic — it cues the AI
     // partner to speak, reinforcing the same step (and honoring the same
     // manualListenArmed / auto-resume gate) as a real conversation.
@@ -1093,6 +1200,7 @@ async function startPractice(scenario) {
     isListening = false;
     manualListenArmed = false;
     ui.setListenButtonState(false);
+    applyListenAvailability();   // practice needs no mic — re-enable Listen if capture is unavailable
     ui.setStatus(`Practice: ${scenario.title}. Tap Start Listening to hear the other person.`);
 }
 
@@ -1617,6 +1725,7 @@ async function handleEndConversation() {
     // to real-conversation behavior.
     practiceMode = false;
     practiceScenario = null;
+    applyListenAvailability();   // back to a real conversation — Listen follows capture again
     await terminateConversation();
     // Ending a conversation clears the situation influencers — the next person /
     // mood shouldn't inherit this conversation's Partner & Feeling selections.
@@ -2720,14 +2829,27 @@ function openSettings() {
     reflectApiKeyFormat();          // reflect the current saved value on open
     // Paste button beside the API-key field — replaces the keyboard's removed
     // clipboard toolbar as the way to paste a long `sk-ant-…` key.
+    // Every outcome is reported. Reading the clipboard is not a plain function
+    // call on every platform: Safari answers it by putting up its own "Paste"
+    // confirmation that the user has to tap, and rejects if they don't. Swallowing
+    // that silently made this look like a dead button on an iPad while the OS's
+    // own touch-and-hold Paste worked fine (Ken, July 30 2026) — so a refusal now
+    // names the alternative instead of leaving the user with nothing.
     document.getElementById('pasteApiKeyBtn').onclick = async () => {
         try {
             const text = (await navigator.clipboard.readText())?.trim();
-            if (text) {
-                apiKeyInput.value = text;
-                apiKeyInput.dispatchEvent(new Event('input', { bubbles: true }));
+            if (!text) {
+                showApiKeyStatus('warn', 'The clipboard is empty — copy your key first.');
+                return;
             }
-        } catch { /* clipboard read blocked/denied — user can type instead */ }
+            apiKeyInput.value = text;
+            apiKeyInput.dispatchEvent(new Event('input', { bubbles: true }));
+            // The input handler runs the format check, which reports on its own if
+            // what was pasted doesn't look like a key.
+        } catch {
+            showApiKeyStatus('warn',
+                'Could not read the clipboard. Touch and hold the box above, then choose Paste.');
+        }
     };
     // Test button — the only way to catch a subtly-wrong key (right format, wrong
     // characters). Verifies against the API (GET /v1/models, bills no tokens).
@@ -2789,25 +2911,30 @@ function openSettings() {
     });
     // Tapping (or focusing, or changing) a keyboard-layout control previews
     // that dock — and shows the keyboard if it's currently hidden (e.g. after
-    // Hide). pointerdown covers re-tapping an already-focused control, where no
-    // focus event fires. The selects also re-render so the choice shows live.
+    // Hide). CLICK, not pointerdown: showing the keyboard resizes the Settings
+    // panel (it sits clear of the dock), and moving a <select> out from under a
+    // finger that is still down makes WebKit abandon the tap — so on an iPad the
+    // native picker never opened at all (Ken, July 30 2026). click still covers
+    // the case pointerdown was chosen for in v0.2.19, re-tapping an
+    // already-focused control where no focus event fires, but arrives after the
+    // picker is up. The selects also re-render so the choice shows live.
     const previewBottom = () => keyboard.previewShow('bottom');
     const previewSide = () => keyboard.previewShow('side');
-    bottomLayoutSelect.onpointerdown = bottomLayoutSelect.onfocus = previewBottom;
+    bottomLayoutSelect.onclick = bottomLayoutSelect.onfocus = previewBottom;
     bottomLayoutSelect.onchange = () => {
         keyboard.setBottomLayout(bottomLayoutSelect.value);
         storage.saveBottomLayout(bottomLayoutSelect.value);
         renderExpressPanel(); // the panel mirrors the layout
         keyboard.previewShow('bottom');
     };
-    sideLayoutSelect.onpointerdown = sideLayoutSelect.onfocus = previewSide;
+    sideLayoutSelect.onclick = sideLayoutSelect.onfocus = previewSide;
     sideLayoutSelect.onchange = () => {
         keyboard.setSideLayout(sideLayoutSelect.value);
         storage.saveSideLayout(sideLayoutSelect.value);
         renderExpressPanel();
         keyboard.previewShow('side');
     };
-    sideDockPositionToggle.onpointerdown = sideDockPositionToggle.onfocus = previewSide;
+    sideDockPositionToggle.onclick = sideDockPositionToggle.onfocus = previewSide;
     sideDockPositionToggle.onchange = () => {
         const pos = sideDockPositionToggle.checked ? 'right' : 'left';
         keyboard.setSideDockPosition(pos);
@@ -2925,4 +3052,49 @@ function openSettings() {
     };
 }
 
-initApp();
+/*
+ * Startup failures must be VISIBLE on the device (Ken, July 30 2026).
+ *
+ * initApp() wires every control in the app, in one pass, and used to be called
+ * bare. So a throw anywhere in it left the surviving buttons dead with no clue
+ * why — which on an iPad, where there is no console to open, presents as "the
+ * Start button doesn't do anything". That exact symptom has now cost two rounds of
+ * guessing, so the app says what broke instead of failing mute.
+ *
+ * Deliberately not a recovery mechanism: whatever threw is still broken. This only
+ * ensures the failure names itself, and that a LATER failure can't hide behind an
+ * earlier one (the first message wins, so the root cause stays on screen).
+ */
+function reportStartupFailure(where, err) {
+    const msg = (err && (err.stack || err.message)) || String(err);
+    try { console.error('[startup]', where, err); } catch { /* no console */ }
+    try { storage.logError('startup:' + where, msg); } catch { /* logging is best-effort */ }
+    try {
+        const box = document.getElementById('startupError');
+        if (!box || !box.hidden) return;   // first failure wins — it is the root cause
+        // Only while the pre-start screen is still up. These handlers stay attached
+        // for the whole session, and a rejection during a conversation is not a
+        // startup failure — it belongs in the error log (above) and the transcript
+        // red-wash, not in a card the user can no longer see anyway.
+        const startBlock = document.getElementById('startBlock');
+        if (!startBlock || startBlock.classList.contains('hidden')) return;
+        document.getElementById('startupErrorDetail').textContent = where + ' — ' + msg;
+        box.hidden = false;
+    } catch { /* the DOM itself is gone; the console line above is all we have */ }
+}
+
+window.addEventListener('error', (e) => reportStartupFailure('script', e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => reportStartupFailure('promise', e.reason));
+
+// Stamp the build BEFORE initApp runs, so it is on screen even if initApp is what
+// fails — that is precisely the case where you need to know which build you have.
+try {
+    const stamp = document.getElementById('buildStamp');
+    if (stamp) stamp.textContent = `v${APP_VERSION} · ${BUILD_ID}`;
+} catch { /* nothing to stamp */ }
+
+try {
+    initApp();
+} catch (err) {
+    reportStartupFailure('initApp', err);
+}

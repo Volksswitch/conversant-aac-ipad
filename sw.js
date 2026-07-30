@@ -10,7 +10,13 @@
  * Bump CACHE_VERSION whenever the precached shell changes so old caches are
  * cleaned out on activate.
  */
-const CACHE_VERSION = 'aac-v0.5.99';
+// The deploy workflow replaces 9e73383 with the commit sha, so EVERY deploy gets
+// its own cache name and activate() clears the previous shell. Without that, all
+// the pushes inside one dev cycle shared a cache key (they share an APP_VERSION),
+// and a redeploy could keep serving the shell precached by an earlier one. A copy
+// served straight from the working tree keeps the placeholder, which is a valid
+// (and stable) cache name for local development.
+const CACHE_VERSION = 'aac-v0.5.99-9e73383';
 // Cache Storage is scoped to the ORIGIN, not the path, and activate() below
 // deletes every cache that is not this one. Two Conversant deployments on the same
 // GitHub Pages origin (/conversant-aac/ and the /conversant-aac-ipad/ trial) would

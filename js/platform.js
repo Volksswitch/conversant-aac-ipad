@@ -21,6 +21,22 @@
  * listening, forever. For an AAC user that is worse than an honest refusal, so the
  * app asks this module first and says plainly when partner capture cannot work.
  *
+ * WHAT THE APP DOES WITH THAT ANSWER — the verdict WARNS, it does not BLOCK
+ * (Ken, July 30 2026). An earlier cut disabled the Listen button wherever this
+ * module reported capture unusable. Ken's call: leave it live, "give Safari every
+ * opportunity to surprise us and work in desktop app mode." The precedent is real
+ * — the same probe run read as though placeholder speech would not fire either,
+ * and on the device it did. A measured failure on one build of one iPadOS is
+ * evidence, not a permanent property, and Apple ships changes we would never see
+ * if the button refuses to try.
+ *
+ * So the two questions are kept SEPARATE, and callers should keep them separate:
+ *
+ *   apiPresent — is there a recognizer to call at all? When false there is
+ *                genuinely nothing to try, and the control is disabled.
+ *   usable     — is it MEASURED to deliver results here? When false the user is
+ *                warned before they start, and then allowed to try anyway.
+ *
  * ON USER-AGENT SNIFFING. Detecting the platform is normally a smell, and it is
  * used sparingly here, because these behaviors are NOT feature-detectable — the
  * APIs are all present in the environments where they silently do nothing. Where a
@@ -76,17 +92,28 @@ export function iosBrowserShell() {
 /*
  * Can built-in speech recognition be relied on here?
  *
- * Returns { usable, reason, remedy } — reason and remedy are user-facing, because
- * the whole point is to replace a silent failure with an explanation the user can
- * act on.
+ * Returns { usable, apiPresent, reason, remedy }. `reason` and `remedy` are
+ * user-facing, because the whole point is to replace a silent failure with an
+ * explanation the user can act on — and, where there is a recognizer to call, the
+ * wording invites them to try it rather than declaring the matter closed (see the
+ * warn-don't-block note at the top of this file).
  */
+
+// Shared by both measured-unreliable cases. Phrased as an invitation to try,
+// because the button is live: the user finds out in ten seconds, and if Safari has
+// improved they get listening rather than a refusal citing a stale measurement.
+const IOS_TRY_ANYWAY =
+    'On the iPad we tested, listening started but never heard anything. Try it — ' +
+    'if nothing appears when the other person speaks, open Conversant in Safari instead.';
+
 export function speechRecognitionSupport() {
-    const present = typeof window !== 'undefined' &&
+    const apiPresent = typeof window !== 'undefined' &&
         ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
 
-    if (!present) {
+    if (!apiPresent) {
         return {
             usable: false,
+            apiPresent: false,
             reason: 'This browser has no speech recognition.',
             remedy: isIOS()
                 ? 'Use Safari on this iPad.'
@@ -100,8 +127,9 @@ export function speechRecognitionSupport() {
         if (isStandalone()) {
             return {
                 usable: false,
-                reason: 'Listening does not work when the app is opened from the Home Screen.',
-                remedy: 'Open Conversant in Safari instead. You can still type and use the Express Panel here.',
+                apiPresent: true,
+                reason: 'Listening may not work when the app is opened from the Home Screen.',
+                remedy: IOS_TRY_ANYWAY,
             };
         }
         // Measured: same silent failure in the Chrome and Edge wrappers, which
@@ -110,14 +138,15 @@ export function speechRecognitionSupport() {
         if (shell) {
             return {
                 usable: false,
-                reason: `Listening does not work in ${shell} on iPad.`,
-                remedy: 'Open Conversant in Safari instead. You can still type and use the Express Panel here.',
+                apiPresent: true,
+                reason: `Listening may not work in ${shell} on iPad.`,
+                remedy: IOS_TRY_ANYWAY,
             };
         }
-        return { usable: true, reason: '', remedy: '' };
+        return { usable: true, apiPresent: true, reason: '', remedy: '' };
     }
 
-    return { usable: true, reason: '', remedy: '' };
+    return { usable: true, apiPresent: true, reason: '', remedy: '' };
 }
 
 /*
@@ -152,6 +181,10 @@ export function describe() {
     else if (isIOS()) bits.push('Safari');
     bits.push(isStandalone() ? 'Home Screen app' : 'browser tab');
     const sr = speechRecognitionSupport();
-    bits.push(sr.usable ? 'listening available' : 'listening unavailable');
+    // Three states, not two: a missing recognizer and one that is merely measured
+    // unreliable are different facts, and only the first is a dead end.
+    bits.push(sr.usable ? 'listening available'
+        : sr.apiPresent ? 'listening unreliable here (enabled anyway)'
+            : 'no speech recognition in this browser');
     return bits.join(' · ');
 }

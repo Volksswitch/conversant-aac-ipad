@@ -111,6 +111,17 @@
        Tunable — judge the actual color on the device. */
     --pred-ghost-color: #0b4ea2;
     --pred-ghost-bg: rgba(21, 101, 192, 0.14);
+
+    /* Screen area the OS reserves at the bottom (the iPad's home-indicator bar);
+       0 everywhere else, including an iPad Home Screen app. ANY surface that
+       reaches the bottom edge must inset by this or its last row is drawn under
+       the indicator. Both dock surfaces use it, via one token, because they must
+       inset IDENTICALLY: the Express Panel and the keyboard occupy the same band
+       and one physical keyguard overlays both, so if only one of them insets
+       their rows are different heights and the holes stop lining up. That is
+       exactly what happened — the keyboard had the inset inline and the Express
+       Panel had nothing (Ken, July 30 2026). */
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 body {
@@ -121,8 +132,13 @@ body {
        grow the page). Fixed height + the min-height:0 flex chain means the
        transcript scrolls INTERNALLY and the conversation layout never grows —
        essential for the static keyguard. Overlays (About Me, Settings) are
-       position:fixed/top-layer and scroll on their own, unaffected. */
+       position:fixed/top-layer and scroll on their own, unaffected.
+       dvh is the height actually on screen; vh can exceed it where browser
+       chrome overlays the page (measured: 32px over-tall in an iPad Home Screen
+       app), which pushes the bottom of the dock off the display. The vh line is
+       the fallback for browsers without dvh; on desktop the two are equal. */
     height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -150,6 +166,17 @@ body {
 
 #startBlock.hidden {
     display: none;
+}
+
+/* Build stamp under the Start button — deliberately quiet, but always present:
+   it is the only way to identify a build before Start has run. */
+#buildStamp {
+    flex: 0 0 auto;
+    margin: 0;
+    font-size: 0.8rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #7a8792;
+    letter-spacing: 0.02em;
 }
 
 #startBtn {
@@ -353,6 +380,12 @@ body.conv-bottom .response-card, body.conv-bottom .response-card-empty { min-hei
     flex-direction: column;
     gap: var(--grid-gap);
     padding: calc(var(--grid-gap) / 2);   /* ½·gap surround (0 at default → flush), matches the keyboard */
+}
+/* Keep the last row clear of the OS's bottom bar — and, critically, inset by the
+   SAME amount the keyboard does, so both dock surfaces lay out on one grid. */
+body.conv-bottom #expressPanel,
+body.conv-side   #expressPanel {
+    padding-bottom: calc(var(--grid-gap) / 2 + var(--safe-bottom));
 }
 #epGrid {
     flex: 1 1 auto;
@@ -1541,6 +1574,41 @@ dialog select {
     text-align: center;
 }
 #apiKeyPrompt[hidden] { display: none; }
+
+/* The other two pre-start notices share the card, so the sequence looks like one
+   thing shown three ways rather than three unrelated screens. The listening notice
+   had no card of its own and rendered as bare text on the transcript background;
+   the startup-failure card is red, because unlike the other two it is not
+   informational — something is actually broken. */
+#listeningPrompt,
+#startupError {
+    flex: 0 0 auto;
+    max-width: 34rem;
+    background: #fff8e6;
+    border: 1px solid #e6c34a;
+    border-left: 6px solid #d99a00;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    text-align: center;
+}
+#startupError {
+    background: #fdf1f1;
+    border-color: #e2a2a2;
+    border-left-color: #c0392b;
+}
+#startupError .apikey-prompt-title { color: #8a2620; }
+/* The exception text: monospace so a stack trace stays readable, and wrapped so a
+   long single-token message can't push the card wider than the screen. */
+#startupErrorDetail {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-align: left;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 30vh;
+    overflow-y: auto;
+}
+#listeningPrompt[hidden],
+#startupError[hidden] { display: none; }
 .apikey-prompt-title { margin: 0 0 0.9rem; font-weight: 700; color: #7a5300; line-height: 1.45; }
 .apikey-prompt-actions {
     display: flex;
@@ -2463,7 +2531,7 @@ body.conv-bottom .tab-panel[data-tab="aboutme"].active {
     border-top: 1px solid #c4ccd2;
     box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
     /* ½·gap surround (matches #expressPanel); keep the safe-area inset at the bottom. */
-    padding: calc(var(--grid-gap) / 2) calc(var(--grid-gap) / 2) calc(var(--grid-gap) / 2 + env(safe-area-inset-bottom, 0px));
+    padding: calc(var(--grid-gap) / 2) calc(var(--grid-gap) / 2) calc(var(--grid-gap) / 2 + var(--safe-bottom));
 }
 /* Key rows stretch to fill the fixed-height bottom dock (like the side dock). */
 #appKeyboard.kbd-dock-bottom .kbd-row { flex: 1 1 0; }
@@ -2477,6 +2545,8 @@ body.conv-bottom .tab-panel[data-tab="aboutme"].active {
     bottom: 0;
     width: var(--dock-w);
     padding: calc(var(--grid-gap) / 2);   /* ½·gap surround (matches #expressPanel) */
+    /* A side dock is full-height, so its last row reaches the bottom edge too. */
+    padding-bottom: calc(var(--grid-gap) / 2 + var(--safe-bottom));
 }
 
 #appKeyboard.kbd-dock-side.kbd-side-right {

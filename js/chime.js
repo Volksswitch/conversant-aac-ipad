@@ -48,15 +48,39 @@ export function playListenChime() {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (!AudioCtx) return true;   // policy allowed it; this device has no audio
         ctx = ctx || new AudioCtx();
-        // The context may start suspended until a user gesture; capture always
-        // starts from a tap (Start Listening) or after one earlier in the session,
-        // so resuming here is allowed.
-        if (ctx.state === 'suspended') ctx.resume();
+        // NEVER schedule into a context that isn't running. WebKit starts a context
+        // suspended unless it was created during a user gesture, and this call is
+        // NOT one: it comes from the recognizer's async 'start' event, which fires
+        // after the microphone permission round-trip, long past the tap. Notes
+        // scheduled onto a suspended context are not dropped — they are queued and
+        // sound the moment the context resumes, which on WebKit is the user's NEXT
+        // gesture. That is how the listening chime came out of the "End
+        // conversation" button on an iPad (Ken, July 30 2026). Ask for a resume so
+        // the next chime works, but stay silent now rather than firing a tone
+        // attached to an unrelated button press. unlock() below is what normally
+        // makes the context running before any of this.
+        if (ctx.state !== 'running') {
+            ctx.resume().catch(() => { /* needs a gesture — unlock() supplies one */ });
+            return true;
+        }
         const t = ctx.currentTime;
         playNote(t,        660, 0.20);  // E5
         playNote(t + 0.17, 880, 0.26);  // A5
     } catch { /* audio unavailable — silent, never blocks capture */ }
     return true;
+}
+
+// Bring the audio context up while a real user gesture is in hand, so the chime
+// can sound later from the recognizer's async start event (see above). Called
+// from the Start button and the Listen button — both genuine taps. Safe and
+// cheap to call repeatedly; a no-op once the context is running.
+export function unlock() {
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!AudioCtx) return;
+        ctx = ctx || new AudioCtx();
+        if (ctx.state !== 'running') ctx.resume().catch(() => { /* best-effort */ });
+    } catch { /* audio unavailable */ }
 }
 
 // Peak level of each note (0–1 full scale). Deliberately loud: this is a

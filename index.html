@@ -39,7 +39,37 @@
                      opening, so nothing is obscured); a SECOND Start press dismisses it
                      and enters the conversation. See whats-new.js + handleStart. -->
                 <div id="startBlock">
+                    <!-- Startup failure. Shown only when something threw while the
+                         app was wiring itself up, which otherwise leaves dead
+                         controls and no explanation — and on an iPad there is no
+                         console to open. See reportStartupFailure in app.js. -->
+                    <div id="startupError" hidden>
+                        <p class="apikey-prompt-title">The app didn't start up properly.</p>
+                        <p class="setting-hint" id="startupErrorDetail"></p>
+                        <p class="setting-hint">Settings → About → Reload the app is worth trying first. If it keeps happening, this text is the bug report.</p>
+                    </div>
+                    <!-- The three optional pre-start screens, in the order the
+                         sequence shows them: step 2 upgrade, step 3 listening,
+                         step 4 API key. Only ever one at a time. -->
                     <div id="whatsNewPanel" hidden></div>
+                    <!-- Step 3 of the pre-start sequence: shown when partner capture
+                         measured unreliable here. On iPadOS recognition starts and
+                         then delivers nothing in a Home Screen app and in
+                         Chrome/Edge, so feature detection cannot be trusted and the
+                         user has to be told. It WARNS but does not block — the
+                         Listen button stays live so Safari can still surprise us
+                         (Ken, July 30 2026) — and the app works for speaking
+                         regardless, hence "Continue anyway", which advances to the
+                         API-key notice. -->
+                    <div id="listeningPrompt" hidden>
+                        <p class="apikey-prompt-title" id="listeningPromptReason"></p>
+                        <p class="setting-hint" id="listeningPromptRemedy"></p>
+                        <div class="apikey-prompt-actions">
+                            <button id="listeningPromptCloseBtn" type="button" class="apikey-continue">Clear message</button>
+                        </div>
+                    </div>
+                    <!-- Step 4 of the pre-start sequence: shown when no API key is
+                         set. Informational — the app works without one. -->
                     <div id="apiKeyPrompt" hidden>
                         <p class="apikey-prompt-title">To receive response suggestions from the AI, please provide an API key.</p>
                         <div class="apikey-prompt-actions">
@@ -47,19 +77,14 @@
                             <button id="apiKeyPromptBtn" type="button">Add API key to Settings</button>
                         </div>
                     </div>
-                    <!-- Shown when this browser cannot capture the partner at all.
-                         Measured on iPadOS: recognition starts and then delivers
-                         nothing in a Home Screen app and in Chrome/Edge, so feature
-                         detection cannot be trusted and the user has to be told.
-                         The app still works for speaking — hence "Continue anyway". -->
-                    <div id="listeningPrompt" hidden>
-                        <p class="apikey-prompt-title" id="listeningPromptReason"></p>
-                        <p class="setting-hint" id="listeningPromptRemedy"></p>
-                        <div class="apikey-prompt-actions">
-                            <button id="listeningPromptCloseBtn" type="button" class="apikey-continue">Continue anyway</button>
-                        </div>
-                    </div>
                     <button id="startBtn">Start</button>
+                    <!-- Which build am I actually looking at? Settings → About has
+                         the version, but Settings is unreachable until Start has
+                         run, so a start-up problem leaves no way to tell a new
+                         delivery from a cached old one. The deploy workflow stamps
+                         the commit in; "dev" means it was served straight from the
+                         working copy. -->
+                    <p id="buildStamp"></p>
                 </div>
             </section>
 
