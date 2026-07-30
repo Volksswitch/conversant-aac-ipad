@@ -1,0 +1,22 @@
+{
+    "acknowledgment": {
+        "question": [
+            "Good question.",
+            "That's a good question.",
+            "That's a fair question.",
+            "Hmm, good question."
+        ],
+        "general": [
+            "Let me see.",
+            "One moment.",
+            "Just a second."
+        ]
+    },
+    "thinking": [
+        "Still thinking it through.",
+        "I'm working out what I want to say.",
+        "Putting my thoughts together.",
+        "Still mulling that over.",
+        "Just gathering my thoughts."
+    ]
+}

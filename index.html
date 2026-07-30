@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conversant AAC</title>
+    <meta name="description" content="Conversant AAC gives non-speaking individuals access to real-time conversation.">
+    <meta name="theme-color" content="#2c3e50">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" type="image/png" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Conversation screen: a MAIN area + a DOCK area. The dock area occupies
+         exactly the on-screen keyboard's real-estate (side or bottom, per the
+         Settings dock choice); it shows the Express Panel at rest and the
+         keyboard during the "In my own words" modal — so one static keyguard
+         overlays both (CLAUDE.md keyguard-overlay principle). -->
+    <main class="disabled" id="conversationMain">
+        <div id="mainArea">
+            <!-- Transcript: partner's words, the mode chip (informational), the
+                 three-state display, the now-playing line, and the session-level
+                 Start/End controls. -->
+            <section id="transcriptSection" class="region" aria-label="Conversation transcript">
+                <!-- Scrolling conversation transcript — fixed height (it scrolls
+                     internally; the layout must NEVER grow, for the static
+                     keyguard). Partner and user turns are styled differently.
+                     Not an input, so no light/card background. -->
+                <div id="transcript" class="transcript-log" aria-live="polite">
+                    <div id="transcriptLog"></div>
+                    <div id="liveTurn" class="turn turn-partner turn-live" hidden></div>
+                    <p id="nowPlaying" class="now-playing" hidden><span class="np-icon">♪</span> <span id="nowPlayingText"></span></p>
+                </div>
+                <!-- Pre-start block: overlays the transcript space (empty before the
+                     conversation begins) and centers the Start button. On the FIRST
+                     Start press the app reveals its layout and, if a post-update notice
+                     is pending, shows it here IN THE TRANSCRIPT REGION (a keyguard
+                     opening, so nothing is obscured); a SECOND Start press dismisses it
+                     and enters the conversation. See whats-new.js + handleStart. -->
+                <div id="startBlock">
+                    <div id="whatsNewPanel" hidden></div>
+                    <div id="apiKeyPrompt" hidden>
+                        <p class="apikey-prompt-title">To receive response suggestions from the AI, please provide an API key.</p>
+                        <div class="apikey-prompt-actions">
+                            <button id="apiKeyContinueBtn" type="button" class="apikey-continue">Close</button>
+                            <button id="apiKeyPromptBtn" type="button">Add API key to Settings</button>
+                        </div>
+                    </div>
+                    <!-- Shown when this browser cannot capture the partner at all.
+                         Measured on iPadOS: recognition starts and then delivers
+                         nothing in a Home Screen app and in Chrome/Edge, so feature
+                         detection cannot be trusted and the user has to be told.
+                         The app still works for speaking — hence "Continue anyway". -->
+                    <div id="listeningPrompt" hidden>
+                        <p class="apikey-prompt-title" id="listeningPromptReason"></p>
+                        <p class="setting-hint" id="listeningPromptRemedy"></p>
+                        <div class="apikey-prompt-actions">
+                            <button id="listeningPromptCloseBtn" type="button" class="apikey-continue">Continue anyway</button>
+                        </div>
+                    </div>
+                    <button id="startBtn">Start</button>
+                </div>
+            </section>
+
+            <!-- Command Bar — the conversation's control surface, its OWN region
+                 (own vertical budget). All buttons are icon-only (Rule 4); each
+                 keeps an accessible name. Session controls, persistent overrides,
+                 and Settings. -->
+            <div id="listenControls" aria-label="Command Bar">
+                <button id="listenBtn" type="button">Start Listening</button>
+                <button id="initiateBtn" type="button" class="cmd-btn">Start conversation</button>
+                <button id="endConversationBtn" type="button" class="cmd-btn cmd-btn-end">End conversation</button>
+                <button id="sayAgainBtn" type="button" class="cmd-btn">Repeat what I said</button>
+                <button id="holdOnBtn" type="button" class="cmd-btn">Hold on</button>
+                <button id="pardonBtn" type="button" class="cmd-btn">Ask them to repeat</button>
+                <button id="windDownBtn" type="button" class="cmd-btn">Wind down</button>
+                <button id="privacyBtn" type="button" class="cmd-btn" aria-pressed="false" aria-label="Don't save this conversation">Don't save</button>
+                <button id="settingsBtn" type="button" class="cmd-btn" aria-label="Settings">Settings</button>
+            </div>
+
+            <!-- Response region. A fixed footprint (4 cards: 2×2 with a side dock,
+                 1×4 with a bottom dock) + the "New 4" regenerate button. The
+                 footprint is ALWAYS reserved (Rule 1) because the "In my own
+                 words" input box overlays exactly this space. -->
+            <section id="responsesSection" class="region" aria-label="Response options">
+                <div id="responseArea">
+                    <div id="responseOptions" class="palette-grid" aria-live="polite">
+                        <p class="placeholder">Response options will appear here</p>
+                    </div>
+                    <button id="regenerateBtn" type="button" class="regenerate-btn" aria-label="New 4 — different options">New 4</button>
+                    <!-- "In my own words" modal input box — overlays the response
+                         footprint, base UI NOT blurred. Shown by the In-my-own-words
+                         Express Panel button; any of the 3 buttons dismisses it. -->
+                    <div id="composerOverlay" class="composer-overlay" hidden aria-label="In my own words">
+                        <textarea id="composerInput" rows="2" placeholder="Type here, then Speak it, Reframe to get new options from it, or Cancel." autocomplete="off"></textarea>
+                        <div id="composerControls">
+                            <!-- Speak + Reframe tile the response-card region (mirrors
+                                 .palette-grid); Cancel mirrors the "New 4" button — so
+                                 one keyguard overlays the cards and these buttons. -->
+                            <div id="composerResponses">
+                                <button id="speakBtn" type="button" class="composer-btn composer-btn-primary">Speak</button>
+                                <button id="reframeBtn" type="button" class="composer-btn">Reframe</button>
+                            </div>
+                            <button id="cancelComposerBtn" type="button" class="composer-btn composer-btn-quiet">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <div id="statusBar" aria-live="polite">Ready</div>
+        </div><!-- /#mainArea -->
+
+        <!-- Dock area — occupies the keyboard's real-estate. Holds the Express Panel
+             panel at rest (top row = persistent overrides; grid = phrases matching
+             the selected keyboard layout, with the space cell as "In my own
+             words"). The keyboard overlays this same space during the modal. -->
+        <div id="dockArea">
+            <div id="expressPanel" class="express-panel">
+                <div id="epGrid" aria-label="Express Panel"></div>
+            </div>
+        </div>
+    </main>
+
+    <dialog id="settingsDialog">
+        <div id="settingsHeader" tabindex="-1">
+            <span id="settingsTitle">Settings</span>
+        </div>
+        <div id="settingsLayout">
+            <nav id="settingsTabs">
+                <div class="settings-tab active" data-tab="general">General</div>
+                <div class="settings-tab" data-tab="aboutme">About Me</div>
+                <div class="settings-tab" data-tab="textsize">Text Size</div>
+                <div class="settings-tab" data-tab="speech">Speech &amp; Input</div>
+                <div class="settings-tab" data-tab="conversation">Conversation</div>
+                <div class="settings-tab" data-tab="practice">Practice</div>
+                <div class="settings-tab" data-tab="express">Express Panel</div>
+                <div class="settings-tab" data-tab="controls">Controls</div>
+                <div class="settings-tab" data-tab="keyguard">Keyguard Design</div>
+                <div class="settings-tab" data-tab="about">About</div>
+            </nav>
+            <div id="settingsContent">
+                <div class="tab-panel active" data-tab="general">
+                    <div class="setting-group">
+                        <label for="apiKeyInput">API Key</label>
+                        <div id="apiKeyRow">
+                            <input type="text" id="apiKeyInput" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+                            <button id="pasteApiKeyBtn" type="button" aria-label="Paste API key">Paste</button>
+                            <button id="testApiKeyBtn" type="button">Test</button>
+                        </div>
+                        <p id="apiKeyStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
+                    </div>
+                    <div class="setting-group">
+                        <label>Data Folder</label>
+                        <div id="dataFolderRow">
+                            <span id="dataFolderName" class="placeholder">No folder selected</span>
+                            <button id="pickFolderBtn" type="button">Choose Folder</button>
+                        </div>
+                        <p class="setting-hint" id="dataFolderHint">Local folder for conversation history and user data. Synced by OneDrive, not uploaded to the cloud.</p>
+                        <!-- Shown only where the app uses the browser's private
+                             storage (no folder picker — i.e. a tablet). There,
+                             whether the browser has promised to keep the data is a
+                             real and consequential question, so it is stated
+                             plainly rather than left to chance. -->
+                        <div id="storageDurabilityRow" hidden>
+                            <p class="setting-hint" id="storageDurabilityStatus"></p>
+                            <button id="makeStorageDurableBtn" type="button" hidden>Ask the browser to keep my data</button>
+                        </div>
+                    </div>
+                    <div class="setting-group" id="settingsProfilesGroup">
+                        <label>Settings profiles</label>
+                        <p class="setting-hint">Save <b>all</b> of your settings (voice, silence period, dock &amp; layout, button/gap sizes, tap mode, text sizes, placeholders) as a named profile in your data folder, then re-apply it in one tap — handy for a repeatable test baseline or moving your setup to another device. Your API key and usage counters are <b>not</b> included. Needs a data folder (above).</p>
+                        <div class="profiles-row">
+                            <select id="settingsProfileSelect" aria-label="Saved settings profiles">
+                                <option value="">— No saved profiles —</option>
+                            </select>
+                            <button id="loadSettingsProfileBtn" type="button">Load</button>
+                            <button id="deleteSettingsProfileBtn" type="button">Delete</button>
+                        </div>
+                        <div class="profiles-row">
+                            <input id="settingsProfileNameInput" type="text" placeholder="Profile name" aria-label="New profile name" maxlength="60">
+                            <button id="saveSettingsProfileBtn" type="button">Save current settings</button>
+                        </div>
+                        <p class="setting-hint" id="settingsProfilesStatus" role="status" aria-live="polite"></p>
+                    </div>
+                    <!-- Backup / transfer. On Windows the data folder already makes
+                         your data visible and copyable; this adds a single-file
+                         package so a backup is one tap, and it is the ONLY way to
+                         move data on a tablet, where the data folder is private to
+                         the browser. Import replaces everything, so it is
+                         danger-confirmed. -->
+                    <div class="setting-group" id="backupGroup">
+                        <label>Backup &amp; transfer</label>
+                        <p class="setting-hint"><b>Export</b> saves everything — your About Me answers, people, Express Panel, starters, settings and saved conversations — into one file you can keep somewhere safe or move to another device. <b>Import</b> puts a backup file back, <b>replacing</b> what is on this device. Your API key is never included in a backup.</p>
+                        <div class="profiles-row">
+                            <button id="exportDataBtn" type="button">Export my data</button>
+                            <button id="importDataBtn" type="button">Import from a backup</button>
+                            <input id="importDataFile" type="file" accept="application/json,.json" hidden>
+                        </div>
+                        <p class="setting-hint" id="backupStatus" role="status" aria-live="polite"></p>
+                    </div>
+                </div>
+                <div class="tab-panel" data-tab="aboutme">
+                    <div id="worldviewContent"></div>
+                </div>
+                <div class="tab-panel" data-tab="textsize">
+                    <div class="setting-group">
+                        <label for="responseFontSelect">Response card text size</label>
+                        <select id="responseFontSelect" class="font-size-select">
+                            <option value="0.85">Smaller</option>
+                            <option value="1" selected>Default</option>
+                            <option value="1.2">Larger</option>
+                            <option value="1.45">Largest</option>
+                        </select>
+                        <p class="setting-hint">Size of the text on the suggested response cards.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="transcriptFontSelect">Transcript text size</label>
+                        <select id="transcriptFontSelect" class="font-size-select">
+                            <option value="0.85">Smaller</option>
+                            <option value="1" selected>Default</option>
+                            <option value="1.2">Larger</option>
+                            <option value="1.45">Largest</option>
+                        </select>
+                        <p class="setting-hint">Size of the text in the conversation transcript.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="composerFontSelect">“In my own words” text size</label>
+                        <select id="composerFontSelect" class="font-size-select">
+                            <option value="0.85">Smaller</option>
+                            <option value="1" selected>Default</option>
+                            <option value="1.2">Larger</option>
+                            <option value="1.45">Largest</option>
+                        </select>
+                        <p class="setting-hint">Size of the text you type in the “In my own words” box.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="expressFontSelect">Express Panel text size</label>
+                        <select id="expressFontSelect" class="font-size-select">
+                            <option value="0.85">Smaller</option>
+                            <option value="1" selected>Default</option>
+                            <option value="1.2">Larger</option>
+                            <option value="1.45">Largest</option>
+                        </select>
+                        <p class="setting-hint">Size of the text on the Express Panel buttons.</p>
+                    </div>
+                </div>
+                <div class="tab-panel" data-tab="speech">
+                    <div class="setting-group">
+                        <label for="buttonSizeSlider">Button size</label>
+                        <div class="slider-row">
+                            <button type="button" class="slider-step" data-target="buttonSizeSlider" data-step="-4" aria-label="Smaller">&minus;</button>
+                            <input type="range" id="buttonSizeSlider" min="0" max="100" step="1" class="size-slider">
+                            <button type="button" class="slider-step" data-target="buttonSizeSlider" data-step="4" aria-label="Larger">+</button>
+                        </div>
+                        <p class="setting-hint">How big the buttons are, for limited motor control and larger fingers. Use the &minus; and + buttons for a small, precise step, or drag the slider. Bigger buttons grow the keyboard / Express Panel area in the direction it can expand — a side panel widens (and the panel beside it shrinks), a bottom panel grows taller (and the transcript shrinks). Changing this moves the keyguard holes, so re-cut the keyguard to match.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="buttonGapSlider">Button spacing</label>
+                        <div class="slider-row">
+                            <button type="button" class="slider-step" data-target="buttonGapSlider" data-step="-4" aria-label="Tighter">&minus;</button>
+                            <input type="range" id="buttonGapSlider" min="0" max="100" step="1" class="size-slider">
+                            <button type="button" class="slider-step" data-target="buttonGapSlider" data-step="4" aria-label="Wider">+</button>
+                        </div>
+                        <p class="setting-hint">The gap between buttons — the width of the bars on a 3D-printed keyguard. Wider spacing grows the dock area where it can expand rather than shrinking the buttons. Cannot go below the minimum spacing.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="minGapSlider">Minimum spacing</label>
+                        <div class="slider-row">
+                            <button type="button" class="slider-step" data-target="minGapSlider" data-step="-4" aria-label="Less minimum spacing">&minus;</button>
+                            <input type="range" id="minGapSlider" min="0" max="100" step="1" class="size-slider">
+                            <button type="button" class="slider-step" data-target="minGapSlider" data-step="4" aria-label="More minimum spacing">+</button>
+                        </div>
+                        <p class="setting-hint">A hard floor on the gap in every direction. It has priority over button size — buttons stop growing (or shrink) so this minimum is always kept. Raising it also raises the button-spacing value to match.</p>
+                    </div>
+                    <div class="setting-group">
+                        <button id="resetSizingBtn" type="button" class="reset-sizing-btn">Reset buttons and gaps to default</button>
+                        <p class="setting-hint">Restores button size, spacing, and the minimum spacing to their defaults. Does not change the keyboard or transcript separation (on the Keyguard Design tab).</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="voiceSelect">Voice</label>
+                        <select id="voiceSelect"></select>
+                        <button id="testVoiceBtn" type="button">Test</button>
+                    </div>
+                    <div class="setting-group">
+                        <label for="partnerVoiceSelect">Practice partner voice</label>
+                        <select id="partnerVoiceSelect"></select>
+                        <p class="setting-hint">In Practice Mode, the AI plays the other person. Give them a different voice from yours so you can tell who's speaking. "Auto" picks a voice that isn't yours.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label>Keyboard for typing</label>
+                        <div class="radio-row">
+                            <label class="radio-label">
+                                <input type="radio" name="keyboardMode" value="physical" checked>
+                                My physical keyboard
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="keyboardMode" value="onscreen">
+                                On-screen keyboard (app's own)
+                            </label>
+                        </div>
+                        <p class="setting-hint">How you type into the app's text fields ("About Me" and "In your own words"). <strong>On-screen keyboard</strong> shows the app's own keyboard and stops Windows from popping its keyboard. <strong>Physical keyboard</strong> uses the keyboard attached to your tablet. Takes effect on the next field you tap.</p>
+                    </div>
+                    <div class="setting-group" id="keyboardPositionGroup">
+                        <label>Express Panel &amp; keyboard position</label>
+                        <div class="radio-row">
+                            <label class="radio-label">
+                                <input type="radio" name="keyboardDock" value="bottom" checked>
+                                Bottom of the screen
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="keyboardDock" value="side">
+                                Side of the screen
+                            </label>
+                        </div>
+                        <p class="setting-hint">Where the Express Panel sits during conversations — and where the on-screen keyboard appears when you type (the composer, "About Me", and Settings). They share this spot so a single keyguard fits both, so this applies <strong>even if you type on a physical keyboard</strong>.</p>
+                    </div>
+                    <div class="setting-group" id="sidePositionGroup">
+                        <label for="sideDockPositionToggle">Which side</label>
+                        <div class="slider-row">
+                            <span class="slider-end">Left</span>
+                            <label class="switch">
+                                <input type="checkbox" id="sideDockPositionToggle">
+                                <span class="switch-track"></span>
+                            </label>
+                            <span class="slider-end">Right</span>
+                        </div>
+                        <p class="setting-hint">Which side of the screen the Express Panel and keyboard sit on.</p>
+                    </div>
+                    <div class="setting-group" id="bottomLayoutGroup">
+                        <label for="bottomLayoutSelect">Express Panel &amp; keyboard layout</label>
+                        <select id="bottomLayoutSelect"></select>
+                        <p class="setting-hint">The grid used by the bottom Express Panel — and by the on-screen keyboard when you type. They share one grid so a single keyguard fits both, so this shapes your Express Panel <strong>even if you type on a physical keyboard</strong>.</p>
+                    </div>
+                    <div class="setting-group" id="sideLayoutGroup">
+                        <label for="sideLayoutSelect">Express Panel &amp; keyboard layout</label>
+                        <select id="sideLayoutSelect"></select>
+                        <p class="setting-hint">The grid used by the side Express Panel — and by the on-screen keyboard when you type. They share one grid so a single keyguard fits both, so this shapes your Express Panel <strong>even if you type on a physical keyboard</strong>.</p>
+                    </div>
+                </div>
+                <div class="tab-panel" data-tab="conversation">
+                    <div class="setting-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="noSaveDefaultInput">
+                            Do not save conversations to my data folder
+                        </label>
+                        <p class="setting-hint">When on, new conversations start private — nothing is written to your data folder. This sets the <em>starting</em> state; you can still turn saving on or off for the current conversation with the “Don't save” button in the Command Bar. Default is off (conversations are saved).</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="responsesPerCategoryInput">Suggestions per category</label>
+                        <select id="responsesPerCategoryInput">
+                            <option value="1" selected>1 (four cards)</option>
+                            <option value="2">2 (eight cards)</option>
+                        </select>
+                        <p class="setting-hint">How many suggested responses to offer in each of the four categories (preferred, dispreferred, initiative, repair). Choosing 2 gives eight cards — two stacked in each category — in the same space as four.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="choiceChipMaxInput">Most choice buttons in the Express Panel</label>
+                        <select id="choiceChipMaxInput">
+                            <option value="0">0 (off)</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                            <option value="4" selected>4</option>
+                        </select>
+                        <p class="setting-hint">When your partner offers a set of choices ("mild, moderate, or severe?"), those choices also appear as green buttons at the start of the Express Panel. Tapping one asks the AI for a full set of responses built around <em>that</em> choice — a plainer one, a more hesitant one, one that adds a detail. The response cards already let you answer in one tap; these are for when you want to say more about one of them. The buttons appear only while a choice is on offer and take only as many spaces as there are choices; your phrases shift along to make room and slide back afterwards. This sets the most that can appear at once, so a long list can't push too many phrases off. Set to 0 to turn them off.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="silenceThresholdInput">Silence period</label>
+                        <select id="silenceThresholdInput">
+                            <option value="0.5">0.5 seconds</option>
+                            <option value="1">1.0 seconds</option>
+                            <option value="1.5">1.5 seconds</option>
+                            <option value="2" selected>2.0 seconds</option>
+                            <option value="2.5">2.5 seconds</option>
+                            <option value="3">3.0 seconds</option>
+                        </select>
+                        <p class="setting-hint">How long the partner can pause before the speech collected so far is sent for response options. Recording keeps going — if the partner continues, the combined speech is re-sent after the next pause. Recording stops only when you choose a response.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="autoRelistenInput">
+                            Resume listening automatically after speaking a response
+                        </label>
+                        <p class="setting-hint">When on, partner recording turns back on by itself after you select a response and it is spoken — no need to tap Start Listening for the next exchange. Default is off.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="listenChimeInput">
+                            Play a chime when listening starts
+                        </label>
+                        <p class="setting-hint">A short tone plays each time you start listening — an audible cue for the person you're talking with that the device is now listening (they're facing you, not the screen). Default is on.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="initialDelayInput">Initial placeholder delay</label>
+                        <select id="initialDelayInput">
+                            <option value="2">2 seconds</option>
+                            <option value="3">3 seconds</option>
+                            <option value="4" selected>4 seconds</option>
+                            <option value="5">5 seconds</option>
+                            <option value="6">6 seconds</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label for="subsequentDelayInput">Subsequent placeholder delay</label>
+                        <select id="subsequentDelayInput">
+                            <option value="6">6 seconds</option>
+                            <option value="8">8 seconds</option>
+                            <option value="10" selected>10 seconds</option>
+                            <option value="12">12 seconds</option>
+                            <option value="15">15 seconds</option>
+                        </select>
+                    </div>
+                    <div class="setting-group">
+                        <label for="maxPlaceholdersInput">Maximum placeholders per turn</label>
+                        <select id="maxPlaceholdersInput">
+                            <option value="0">0 (none)</option>
+                            <option value="1">1</option>
+                            <option value="2" selected>2</option>
+                            <option value="3">3</option>
+                            <option value="4">4</option>
+                            <option value="-1">No limit</option>
+                        </select>
+                    </div>
+                    <p class="setting-hint">The initial delay is how long after the partner stops speaking before the first placeholder is spoken — the clock starts at the pause, so if the response options are slow to arrive a placeholder still fills the silence (a quick choice plays none). Subsequent delays are the interval between additional placeholders while you choose. The first placeholder acknowledges ("Good question."); later ones say you're still thinking. The maximum caps how many play before the system stays quiet — set it to 0 if you find placeholders artificial, or "No limit" to keep them coming (2 keeps them from sounding repetitive).</p>
+                    <div class="setting-group">
+                        <label>Speaking an Express Panel phrase</label>
+                        <div class="radio-row">
+                            <label class="radio-label">
+                                <input type="radio" name="expressTapMode" value="single" checked>
+                                Single tap speaks it
+                            </label>
+                            <label class="radio-label">
+                                <input type="radio" name="expressTapMode" value="double">
+                                Require a double tap (guards against accidental taps)
+                            </label>
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label for="doubleTapMsSelect">Double-tap interval</label>
+                        <select id="doubleTapMsSelect">
+                            <option value="300">0.3 seconds</option>
+                            <option value="400" selected>0.4 seconds</option>
+                            <option value="600">0.6 seconds</option>
+                            <option value="800">0.8 seconds</option>
+                            <option value="1000">1 second</option>
+                        </select>
+                        <p class="setting-hint">When double tap is required, how long the first tap stays armed waiting for the second. A longer interval is more forgiving for slower or less precise taps.</p>
+                    </div>
+                </div>
+                <div class="tab-panel" data-tab="practice">
+                    <p class="setting-hint">In <strong>Practice Mode</strong> the AI plays the other person, so you can rehearse a conversation without a microphone and without spending anyone's patience. Pick something to practice below; the conversation screen works exactly as it normally does, except <strong>Start Listening</strong> cues the other person to speak instead of opening the mic. Give them their own voice under <strong>Speech &amp; Input</strong>.</p>
+                    <div id="practicePanel"></div>
+                </div>
+                <div class="tab-panel" data-tab="express">
+                    <p class="setting-hint">Edit the <strong>Express Panel</strong>. Each item is a <strong>Phrase</strong> (speaks when tapped), a <strong>Partner</strong> (who you're talking with — personalizes openers and tells the AI who's there), or a <strong>Feeling</strong> (sets the mood of the suggestions). Order here = position in the panel; use ↑ ↓ to arrange and ✕ to remove.</p>
+                    <div id="expressEditor"></div>
+                </div>
+                <div class="tab-panel" data-tab="controls">
+                    <p class="setting-hint">Set the exact words spoken by the persistent control buttons, and the cards shown by <strong>Start conversation</strong> and <strong>Wind down</strong> — so each sounds like something you would say.</p>
+                    <div id="controlEditor"></div>
+                </div>
+                <div class="tab-panel" data-tab="keyguard">
+                    <div class="setting-group">
+                        <label for="dockSepSlider">Keyboard separation</label>
+                        <div class="slider-row">
+                            <button type="button" class="slider-step" data-target="dockSepSlider" data-step="-4" aria-label="Less separation">&minus;</button>
+                            <input type="range" id="dockSepSlider" min="0" max="100" step="1" class="size-slider">
+                            <button type="button" class="slider-step" data-target="dockSepSlider" data-step="4" aria-label="More separation">+</button>
+                        </div>
+                        <p class="setting-hint">The gap between the keyboard / Express Panel and the rest of the screen. It only shifts the other content away from the keyboard — the keyboard itself stays put, so changing this does not move the keyguard holes. Widening it leaves room for a keyguard bar between the two areas.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label for="transcriptSepSlider">Transcript separation</label>
+                        <div class="slider-row">
+                            <button type="button" class="slider-step" data-target="transcriptSepSlider" data-step="-4" aria-label="Less separation">&minus;</button>
+                            <input type="range" id="transcriptSepSlider" min="0" max="100" step="1" class="size-slider">
+                            <button type="button" class="slider-step" data-target="transcriptSepSlider" data-step="4" aria-label="More separation">+</button>
+                        </div>
+                        <p class="setting-hint">The gap between the transcript and the command bar below it. It makes the transcript shorter to open the gap — the command bar and everything below it stay put, so this does not move the keyguard holes. Widening it leaves room for a keyguard bar between the transcript and the buttons.</p>
+                    </div>
+                    <p class="setting-hint">Generate a <strong>Screen Openings.txt</strong> file describing each control on the main conversation screen — for cutting a physical keyguard. Positions and sizes are in <strong>device (screenshot) pixels</strong>, measured from the upper-left of the screen. Enter your window's title-bar height so each opening's Y matches a full-screen screenshot.</p>
+                    <div class="setting-group">
+                        <label for="titleBarHeightInput">Title Bar Height (px)</label>
+                        <input type="number" id="titleBarHeightInput" min="0" step="1" value="0" inputmode="numeric">
+                    </div>
+                    <div class="setting-group">
+                        <button id="generateOpeningsBtn" type="button">Generate Screen Openings</button>
+                        <p class="setting-hint">Writes <strong>Screen Openings.txt</strong> to the root of your data folder. Choose a data folder first (General tab) if you haven't.</p>
+                    </div>
+                </div>
+                <div class="tab-panel" data-tab="about">
+                    <h3>Conversant AAC</h3>
+                    <p class="about-version">Version <span id="aboutVersion">0.2</span> — Phase 1 Proof of Concept</p>
+                    <p class="about-description">Conversant AAC gives non-speaking individuals access to real-time conversation. Generative AI presents response options within seconds of a communication partner's utterance.</p>
+                    <div class="setting-group">
+                        <label>App updates</label>
+                        <button id="reloadAppBtn" type="button">Reload the app</button>
+                        <p class="setting-hint">Forces a fresh reload to pick up the latest version — the same as a hard refresh (Ctrl+Shift+R), but no keyboard needed.</p>
+                    </div>
+                    <div class="setting-group">
+                        <label>Error log <span id="errorLogCount" class="setting-hint"></span></label>
+                        <textarea id="errorLogView" readonly rows="6" placeholder="No errors recorded." aria-label="Error log"></textarea>
+                        <div id="errorLogActions">
+                            <button id="copyErrorLogBtn" type="button">Copy</button>
+                            <button id="clearErrorLogBtn" type="button">Clear</button>
+                        </div>
+                        <p class="setting-hint">Errors grouped by conversation (newest first). <b>Copy</b> puts the full report on the clipboard — each conversation's transcript together with its errors — ready to paste into a bug report. Also written to <code>errors.log</code> in your data folder.</p>
+                    </div>
+                    <div class="setting-group usage-group">
+                        <label>Estimated API Cost</label>
+                        <div id="usageDisplay">
+                            <span id="usageCost">$0.00</span>
+                            <span id="usageSince" class="setting-hint"></span>
+                        </div>
+                        <button id="resetUsageBtn" type="button">Reset</button>
+                        <p class="setting-hint">Estimated cost based on token usage. Check <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a> for exact billing.</p>
+                    </div>
+                    <p class="about-license">Open source — MIT License</p>
+                    <p class="about-link"><a href="https://www.volksswitch.org" target="_blank" rel="noopener">Volksswitch.org</a></p>
+                </div>
+            </div>
+        </div>
+        <div class="dialog-actions">
+            <button id="closeSettingsBtn">Close</button>
+        </div>
+    </dialog>
+
+    <script type="module" src="js/app.js"></script>
+    <script>
+        // Register the service worker for offline app-shell loading and PWA install,
+        // and auto-update the app on launch. A redeployed sw.js installs and (because
+        // the worker calls skipWaiting) activates immediately; when it takes control
+        // we reload once so the page runs the new version instead of the one it
+        // launched with. Guarded so the very first install (no prior controller)
+        // and repeat fires don't loop.
+        if ('serviceWorker' in navigator) {
+            const hadController = !!navigator.serviceWorker.controller;
+            let reloading = false;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (reloading || !hadController) return;
+                reloading = true;
+                window.location.reload();
+            });
+            window.addEventListener('load', async () => {
+                try {
+                    const reg = await navigator.serviceWorker.register('sw.js');
+                    // Check for a newer worker on every launch.
+                    reg.update();
+                } catch (err) {
+                    console.warn('Service worker registration failed:', err);
+                }
+            });
+        }
+    </script>
+</body>
+</html>

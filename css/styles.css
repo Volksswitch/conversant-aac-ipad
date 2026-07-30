@@ -1,0 +1,2649 @@
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+/* --- Proportional layout, two independent axes (Ken, June 21 2026). Every
+   element is a PREDICTABLE FRACTION of the screen — same share on every tablet,
+   physically larger on a 13" and smaller on a 10" (elements need not be the
+   same physical size, only the same share of the pixel box). Crucially the two
+   axes scale INDEPENDENTLY, each off its own pixel capacity, so an off-3:2
+   window (split-screen, portrait, a resized window) uses each axis on its own
+   terms instead of collapsing both to the smaller one:
+     • horizontal sizes (content cap, column min-width, column gaps) → `vw`
+       — though most of the horizontal axis is already proportional for free,
+         since the grid's 1fr columns and flex buttons fill width;
+     • vertical sizes (region/card heights, row gaps, vertical padding, the
+       keyboard dock) → `vh`;
+     • font-size → `vmin` (a glyph is a single scalar — it can't scale W and H
+       independently — so type must pick ONE basis; vmin keeps text fitting the
+       smaller/squeezed axis, which in landscape is height).
+   `clamp()` bounds each so a tiny/split window floors and a large external
+   monitor ceilings — the bounds sit OUTSIDE the real fleet (~1280–1465 wide,
+   ~853–976 tall) so within the fleet everything scales linearly. Native pixels
+   and physical density are irrelevant (the platform can't report them); the CSS
+   pixel box can, and that's what we anchor to. --- */
+:root {
+    font-size: clamp(14px, 1.6vmin + 1.8px, 24px);
+}
+
+/* --- Design tokens (UI-Design.docx §10). Slot colors carry response identity as
+   one leg of the triple coding (position + color + text badge); never the only
+   cue. Transcript-state colors match §6. Tinted fills are pale; the border and
+   badge carry the hue. --- */
+:root {
+    --slot-preferred: #2E7D32;     /* green  */
+    --slot-dispreferred: #B26A00;  /* amber — warm, not red: declining is normal */
+    --slot-initiative: #1565C0;    /* blue — also the RESPONDING mode chip */
+    --slot-repair: #6A1B9A;        /* purple */
+    --slot-persistent: #455A64;    /* slate — quiet, recognized by position */
+
+    --slot-preferred-tint: #eef6ef;
+    --slot-dispreferred-tint: #fbf2e6;
+    --slot-initiative-tint: #eaf1fa;
+    --slot-repair-tint: #f4ecf8;
+
+    --state-unconfirmed: #B26A00;  /* amber */
+    --state-generating: #1565C0;   /* blue  */
+    --state-ready: #2E7D32;        /* green */
+
+    --ink: #1a1a1a;
+    --header: #2c3e50;
+
+    /* --- The DOCK region (Spatial Stability, Ken June 2026). The keyboard /
+       Express Panel footprint is ONE fixed region used identically on EVERY
+       screen (conversation, About Me, Settings) so a single physical keyguard
+       overlays them all. Two fundamental layouts: SIDE (a fixed-width full-height
+       column on the chosen edge) and BOTTOM (a fixed-height full-width strip).
+       Overlays reserve this region (leaving it blank at rest) and put their
+       content in the MAIN AREA; the keyboard fills the dock when typing. These
+       two values are the single source of truth for the dock size everywhere.
+       --- The dock is sized DIRECTLY from the button size + gap (Ken, June 29
+       2026 — revised): button size is AUTHORITATIVE and sets the actual button
+       dimension, so the dock's scarce axis = count × --btn-min-dim + gaps + pad
+       (NO floor that would mask the setting). Raising either the button size OR
+       the gap therefore grows the dock along its expandable axis — the side dock
+       WIDENS (cols), the bottom dock grows TALLER (rows) — shrinking the
+       neighbour (Settings panel / transcript), and the buttons keep their set
+       size (the gap expands the dock, it never steals from the buttons). Capped
+       (min(cap, …)) so it can't erase the main area on a small screen. */
+    --grid-gap: 0.4rem;           /* gap between dock cells (matches .ep-row / .kbd-row) */
+    /* Minimum gap (Ken, June 30 2026): a hard floor on the gap (future slider,
+       default 0, precedence over button size). It is ALSO the OUTER padding
+       around the whole collection of top-level components (screen-edge → cluster)
+       — inter-component spacing stays 1·gap, the dock's internal surround ½·gap.
+       The outer-padding wiring (incl. insetting the fixed dock) lands with the
+       min-gap slider in the deferred change-rules; at 0 it's flush/invisible. */
+    --gap-min: 0;
+    /* Keyboard separation (Ken, June 30 2026): the gap BETWEEN the dock (keyboard
+       / Express Panel) and the rest of the UI. Independent of --grid-gap (the
+       inter-button gap). The dock keeps its footprint at the screen edge; this
+       only pushes the MAIN content away from it, so it does NOT move the keyguard
+       holes. Default 0 = flush (the prior look). JS slider sets it. */
+    --dock-sep: 0px;
+    /* Transcript separation (Ken, July 2026): extra gap between the transcript and
+       the command bar, opened by SHORTENING the transcript vertically. The command
+       bar and everything below it stay put, so the keyguard holes don't move.
+       Default 0px = flush. JS slider (Keyguard Design tab) sets it. */
+    --transcript-sep: 0px;
+    --dock-pad: 1rem;             /* the dock panel's own padding on the scarce axis (0.5+0.5) */
+    --kbd-rows: 7;                /* rows in the active layout — JS overrides per layout */
+    --kbd-cols: 5;                /* widest row's total span — JS overrides per layout */
+    --dock-w: min(70vw,
+                  calc(var(--kbd-cols) * var(--btn-min-dim)
+                       + (var(--kbd-cols) - 1) * var(--grid-gap) + var(--dock-pad)));
+    --dock-h: min(72vh,
+                  calc(var(--kbd-rows) * var(--btn-min-dim)
+                       + (var(--kbd-rows) - 1) * var(--grid-gap) + var(--dock-pad)));
+
+    /* --- Button size (Ken, June 27 2026; "Button size" slider, Settings →
+       Speech & Input). The ACTUAL dimension of a button along the dock's
+       expandable axis (key width in a side dock, key height in a bottom dock).
+       Control buttons (Command Bar, composer, persist) size to it; the dock
+       (above) is sized FROM it so keys/Express cells render exactly this size.
+       Wire new control buttons to this token rather than a bare rem value. */
+    --btn-min-dim: 4rem;
+
+    /* Inline word-prediction ghost (Ken, June 29 2026). Bold + a subtle tint
+       mark the completion as provisional WITHOUT relying on low contrast, so it
+       stays legible for low vision (bold also relaxes WCAG contrast to 3:1).
+       Tunable — judge the actual color on the device. */
+    --pred-ghost-color: #0b4ea2;
+    --pred-ghost-bg: rgba(21, 101, 192, 0.14);
+}
+
+body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #f0f0f0;
+    color: #1a1a1a;
+    /* Bound the app to the viewport (was min-height:100vh, which let content
+       grow the page). Fixed height + the min-height:0 flex chain means the
+       transcript scrolls INTERNALLY and the conversation layout never grows —
+       essential for the static keyguard. Overlays (About Me, Settings) are
+       position:fixed/top-layer and scroll on their own, unaffected. */
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Pre-start block: overlays the transcript region (empty before a conversation)
+   and centers the Start button in it, with the "What's new" panel above when an
+   update just landed. Transparent, so the transcript's bordered box shows through
+   and Start reads as sitting inside the conversation space. */
+#startBlock {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    /* No padding: when the "What's new" card shows it fills the ENTIRE transcript
+       control (Ken). The pre-start Start button just centers in the same space. */
+    padding: 0;
+    overflow: auto;
+    z-index: 5;
+    pointer-events: auto;   /* clickable even while main is disabled */
+}
+
+#startBlock.hidden {
+    display: none;
+}
+
+#startBtn {
+    flex: 0 0 auto;
+    background: #2c3e50;
+    color: white;
+    border: none;
+    padding: 1.2rem 3.5rem;
+    border-radius: 12px;
+    font-size: 2rem;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* Practice Mode panel (Settings → Practice): the scenario list, or — while a
+   practice conversation is running — the way out of it. */
+#practicePanel { display: flex; flex-direction: column; gap: 0.6rem; }
+.practice-title { margin: 0 0 0.2rem; font-size: 1.3rem; font-weight: 700; color: #2c3e50; }
+.practice-note { margin: 0 0 0.6rem; color: #5a4a1e; line-height: 1.45; }
+.practice-active { margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--slot-initiative); }
+.practice-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.practice-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    text-align: left;
+    background: #fff;
+    border: 2px solid #cbd5dd;
+    border-left: 6px solid var(--slot-initiative);
+    border-radius: 8px;
+    padding: 0.6rem 0.9rem;
+    cursor: pointer;
+}
+.practice-card:hover, .practice-card:focus-visible { border-color: var(--slot-initiative); outline: none; }
+.practice-cat { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--slot-initiative); font-weight: 700; }
+.practice-name { font-size: 1.15rem; font-weight: 700; color: #2c3e50; }
+.practice-desc { color: #555; }
+.practice-add-key, .practice-end {
+    align-self: flex-start;
+    background: #2c3e50; color: #fff; border: 2px solid #2c3e50;
+    padding: 0.5rem 1.2rem; border-radius: 8px; font-size: 1rem; cursor: pointer;
+}
+.practice-end { background: var(--slot-dispreferred); border-color: var(--slot-dispreferred); }
+
+/* Before Start, block interaction with the whole conversation surface and dim
+   everything EXCEPT the transcript region — that's where the Start button (and
+   the "What's new" panel) live and must stay crisp and tappable. Opacity can't be
+   un-inherited, so the dim is applied to the sibling regions, not to main. */
+main.disabled {
+    pointer-events: none;
+}
+
+main.disabled #listenControls,
+main.disabled #responsesSection,
+main.disabled #statusBar,
+main.disabled #dockArea {
+    opacity: 0.4;
+}
+
+/* Title bar removed (Ken, June 29 2026): About Me moved into the Settings panel
+   and Settings into the Command Bar, so the header (app title + About Me +
+   Settings buttons) is gone. The conversation main area now fills from the top. */
+
+/* Conversation screen = a MAIN area + a DOCK area (the keyboard's real-estate).
+   Arrangement follows the Settings dock choice (body conv-* classes): side dock
+   → a row (dock right or left); bottom dock → a column (dock at the bottom). */
+main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    width: 100%;
+}
+body.conv-side-right main { flex-direction: row; }
+body.conv-side-left  main { flex-direction: row-reverse; }
+body.conv-bottom     main { flex-direction: column; }
+
+#mainArea {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    /* The spacing BETWEEN regions and the padding AROUND them is the keyguard
+       rail width — the same --grid-gap as between buttons (Ken, June 29 2026:
+       the gap is also the padding around non-button elements like the
+       transcript, since a rail surrounds them too). */
+    gap: var(--grid-gap);
+    padding: var(--grid-gap);
+    /* NEVER scroll here. #mainArea holds the transcript AND the command bar AND the
+       response palette; a scrollbar on it shrinks the width of ALL three at once. The
+       transcript (.transcript-log) is the ONLY intended scroll container. Before this
+       was `overflow: auto`, so appending a turn on a card tap momentarily overflowed
+       mainArea → a transient scrollbar spanning all regions → the command buttons and
+       cards jumped left (Ken, July 2026). `clip` (falls back to hidden) never paints a
+       scrollbar; the transcript's own overflow-y absorbs the growth. */
+    overflow: clip;
+}
+
+/* Dock area — same footprint as the keyboard so one keyguard overlays both. */
+#dockArea {
+    flex: 0 0 auto;
+    display: flex;
+    min-height: 0;
+    background: #e9edf0;
+}
+/* SIDE dock: a FULL-HEIGHT fixed column on the chosen edge (y0..bottom), so the
+   Express Panel occupies the exact same region the keyboard and the About Me /
+   Settings dock reservations do — otherwise the app header would push the panel
+   down and its grid wouldn't line up with the keyboard under one keyguard. The
+   conversation main area + the app header are confined to the main-area rect
+   beside it. (BOTTOM dock keeps its in-flow strip — no header conflict there.) */
+body.conv-side #dockArea {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: var(--dock-w);
+    z-index: 50;
+}
+body.conv-side-right #dockArea { right: 0; border-left: 1px solid #c4ccd2; }
+body.conv-side-left  #dockArea { left: 0;  border-right: 1px solid #c4ccd2; }
+/* Reserve the dock width PLUS the separation gap, so the main content stops
+   --dock-sep short of the fixed dock and the page background shows between them. */
+body.conv-side-right #conversationMain { padding-right: calc(var(--dock-w) + var(--dock-sep)); }
+body.conv-side-left  #conversationMain { padding-left: calc(var(--dock-w) + var(--dock-sep)); }
+/* FIXED bottom dock height so the Express Panel and the keyboard occupy the
+   identical band (one keyguard). margin-top opens the separation gap above it. */
+body.conv-bottom #dockArea { width: 100%; height: var(--dock-h); flex: 0 0 var(--dock-h); margin-top: var(--dock-sep); border-top: 1px solid #c4ccd2; }
+
+/* ============================================================================
+   CONVERSATION default percentage layout (Ken, June 30 2026).
+   Four top-level components — transcript, command bar, response palette, dock —
+   budgeted as % of screen, per dock mode. Buttons FILL their region (their size
+   derives from the %; what button-size / gap / minimum-gap CHANGES do is the
+   deferred step, so those sliders don't drive the layout yet).
+   Spacing: outer padding around the cluster = MIN-GAP (the main-area side is
+   wired here; insetting the fixed dock is deferred with the min-gap slider);
+   components separated by 1·gap; the dock's internal surround = ½·gap.
+   Default gap = 0, min-gap = 0 → flush (borders still separate buttons).
+
+   SIDE  : dock 30% WIDTH, full height; remaining 70% width splits vertically
+           transcript 30 / command 10 / response 60  (3:1:6).
+   BOTTOM: dock 30% HEIGHT, full width; remaining 70% height splits
+           transcript 30 / command 10 / response 30 of the viewport (3:1:3).
+   ============================================================================ */
+/* SIDE dock width is JS-computed (the solver grows it as button size increases);
+   fallback 30vw = the default middle. BOTTOM still uses the fixed 30vh default
+   (its solver is the next step). */
+body.conv-side   { --dock-w: var(--conv-dock-w, 30vw); }
+body.conv-bottom { --dock-h: var(--conv-dock-h, 30vh); }
+
+/* Outer padding around the cluster = min-gap; regions separated by 1·gap. */
+body.conv-side #mainArea,
+body.conv-bottom #mainArea { padding: var(--gap-min); gap: var(--grid-gap); }
+
+/* Vertical budget. SIDE: the transcript height is JS-computed (it yields as
+   command/response buttons grow); command:response keep 1:6 of the rest (10:60
+   at the default 30% transcript). BOTTOM: fixed 3:1:3 (solver pending). */
+/* Transcript separation (Keyguard tab): a margin-bottom opens a gap above the
+   command bar. In SIDE mode the transcript basis is reduced by the same amount so
+   only the transcript shrinks (command/response keep their position); in BOTTOM
+   mode the transcript is already flexible, so the margin alone shortens it. */
+#transcriptSection { margin-bottom: var(--transcript-sep, 0px); }
+body.conv-side   #transcriptSection { flex: 0 0 calc(var(--conv-transcript-v, 30vh) - var(--transcript-sep, 0px)); min-height: 0; }
+body.conv-side   #listenControls    { flex: 1 1 0; min-height: 0; margin-top: 0; }
+body.conv-side   #responsesSection  { flex: 6 1 0; min-height: 0; display: flex; }
+/* BOTTOM: command (10vh) + response (30vh) are FIXED; the transcript yields
+   vertically (flex, with a floor) as the dock grows taller. */
+body.conv-bottom #transcriptSection { flex: 1 1 0; min-height: var(--conv-transcript-floor, 3rem); }
+body.conv-bottom #listenControls    { flex: 0 0 10vh; min-height: 0; margin-top: 0; }
+body.conv-bottom #responsesSection  { flex: 0 0 30vh; min-height: 0; display: flex; }
+
+/* Command bar: 8 buttons, each 1/8 of the width, full region height (both docks). */
+body.conv-side #listenControls,
+body.conv-bottom #listenControls { align-items: stretch; }
+body.conv-side #listenControls > button,
+body.conv-bottom #listenControls > button { flex: 1 1 0; min-width: 0; min-height: 0; }
+
+/* Response palette region fills its budget; inside it the cards take 90% width
+   (side = 2×2, bottom = 1×4) and the "New 4" button 10% (9:1 absorbs the gap).
+   Cards fill (no fixed min that would overflow). */
+body.conv-side #responseArea,
+body.conv-bottom #responseArea { flex: 1 1 0; height: auto; min-height: 0; }
+body.conv-side .palette-grid,
+body.conv-bottom .palette-grid { flex: 9 1 0; }
+body.conv-side .regenerate-btn,
+body.conv-bottom .regenerate-btn { flex: 1 1 0; width: auto; }
+body.conv-side .response-cell,
+body.conv-bottom .response-cell { min-height: 0; }
+body.conv-side .response-card, body.conv-side .response-card-empty,
+body.conv-bottom .response-card, body.conv-bottom .response-card-empty { min-height: 0; }
+
+/* Express Panel: just the phrase grid now (#epGrid, mirroring the keyboard
+   layout). The old #epControls override row was removed (Ken, June 29 2026) when
+   the overrides moved to the Command Bar — so the grid starts at the top of the
+   dock, matching the keyboard which also dropped its toolbar row (one keyguard). */
+#expressPanel {
+    flex: 1 1 auto;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--grid-gap);
+    padding: calc(var(--grid-gap) / 2);   /* ½·gap surround (0 at default → flush), matches the keyboard */
+}
+#epGrid {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--grid-gap);   /* between rows — also the keyguard bar width (settable) */
+    min-height: 0;
+}
+.ep-row {
+    display: flex;
+    gap: var(--grid-gap);   /* between cells — the keyguard bar width (settable) */
+}
+/* Rows stretch to fill the dock in BOTH layouts (the dock is a fixed size each
+   way), so the Express Panel exactly fills the dock region the keyboard occupies. */
+body.conv-side .ep-row,
+body.conv-bottom .ep-row { flex: 1 1 0; }
+
+.region h2 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: #555;
+}
+
+.panel {
+    background: white;
+    border-radius: 8px;
+    padding: 1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.placeholder {
+    color: #888;
+    font-style: italic;
+}
+
+/* Mode chip — the engine's inferred mode, colored by the mode's dominant slot.
+   Informational only (overriding happens in Region C), so it's not a button. */
+.mode-chip {
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #fff;
+    border-radius: 14px;
+    padding: 0.25rem 0.75rem;
+    white-space: nowrap;
+}
+.chip-standby    { background: #90a4ae; }
+.chip-listening  { background: var(--slot-persistent); }
+.chip-responding { background: var(--slot-initiative); }
+.chip-repair     { background: var(--slot-repair); }
+.chip-initiating { background: var(--slot-initiative); }
+.chip-closing    { background: var(--slot-persistent); }
+
+/* Transcript panel — three informational states (§6): a left accent bar + a
+   small state label change color together. Color is never the only cue (the
+   label text always accompanies it). */
+/* Scrolling conversation transcript — fills the available space (above the
+   phrases on a bottom dock; in the frame beside them on a side dock) and scrolls
+   INTERNALLY at a FIXED height, so the layout never grows (static keyguard). Not
+   an input → no light/card background. */
+#transcriptSection {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    position: relative;   /* positioning context for #startBlock */
+}
+.transcript-log {
+    flex: 1 1 auto;
+    /* The transcript yields its space (height in bottom dock, width in side dock)
+       when larger buttons grow the dock — but keep a small floor so it never
+       collapses to nothing (Ken: buttons win the squeeze, transcript shrinks). */
+    min-height: 3rem;
+    overflow-y: auto;
+    background: transparent;     /* not an input — no light card background */
+    border: 1px solid #b7c0c8;   /* delineate the conversation box */
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    box-shadow: none;
+    transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+/* Wide, high-contrast scrollbar for limited motor control (Ken, July 2026) —
+   matches the About Me / Settings treatment (v0.2.23). The transcript is the ONLY
+   conversation-screen scroll container, so this is the only scrollbar the user
+   drives during a conversation; the default ~11px bar is hard to grab. Chromium
+   (Edge/Chrome, the Surface browsers) honours ::-webkit-scrollbar width. */
+.transcript-log::-webkit-scrollbar {
+    width: 22px;
+}
+.transcript-log::-webkit-scrollbar-track {
+    background: #e2e6ea;
+    border-radius: 11px;
+}
+.transcript-log::-webkit-scrollbar-thumb {
+    background: #8a97a4;
+    border-radius: 11px;
+    border: 3px solid #e2e6ea;   /* track-coloured inset around the thumb */
+}
+.transcript-log::-webkit-scrollbar-thumb:hover,
+.transcript-log::-webkit-scrollbar-thumb:active {
+    background: #66727e;
+}
+/* Error heads-up: a faint-red wash (+ red border) on the transcript box when the
+   app has logged an error this conversation. Deliberately subtle — signals "a
+   hiccup occurred, expect a deviation / report it" without a worded message.
+   Cleared on the next working cycle (a real palette render) or conversation
+   reset. */
+.transcript-log.has-error {
+    background: rgba(220, 53, 69, 0.08);
+    border-color: rgba(220, 53, 69, 0.55);
+}
+
+/* Turn entries — partner vs user styled DIFFERENTLY (distinct font, color,
+   side). */
+.turn {
+    /* Shrink the coloured bubble to its text (a block div would otherwise fill the
+       whole 88% width, so a short user turn showed a wide blue box with the text
+       hugging the right and empty colour to the left — Ken, July 2026). fit-content
+       + the margin-auto below makes proper chat bubbles: partner hugs left, user
+       hugs right, each only as wide as its words; max-width still wraps long turns. */
+    width: fit-content;
+    max-width: 88%;
+    margin: 0.25rem 0;
+    padding: 0.4rem 0.7rem;
+    border-radius: 10px;
+    line-height: 1.3;
+    /* User-settable transcript text size (Settings → Speech & Input). */
+    font-size: calc(1.05rem * var(--transcript-font-scale, 1));
+    word-break: break-word;
+}
+.turn-partner {
+    margin-right: auto;
+    background: #e9eef2;
+    color: #243240;
+    font-family: Georgia, "Times New Roman", serif;  /* partner: serif */
+    border-bottom-left-radius: 2px;
+}
+.turn-user {
+    margin-left: auto;
+    background: #e3f0fb;
+    color: #0f3f72;
+    font-family: system-ui, -apple-system, sans-serif;  /* user: sans */
+    font-weight: 600;
+    text-align: right;
+    border-bottom-right-radius: 2px;
+}
+/* The in-progress partner turn (live STT) — provisional, with a subtle state
+   accent (UNCONFIRMED → GENERATING). */
+.turn-live {
+    opacity: 0.75;
+    border-left: 4px solid transparent;
+}
+.turn-live[hidden] { display: none; }
+.turn-live.state-unconfirmed { border-left-color: var(--state-unconfirmed); }
+.turn-live.state-generating  { border-left-color: var(--state-generating); }
+/* AI unreachable: the partner's raw words stay visible but can't be tidied, so
+   they read blue + italic ("raw / not cleaned up"). Same convention as a committed
+   uncleaned turn below. */
+.turn-live.state-uncleaned {
+    opacity: 1;
+    color: var(--slot-initiative);
+    font-style: italic;
+    border-left-color: var(--slot-initiative);
+}
+
+/* A committed partner turn recorded verbatim from speech recognition WITHOUT the
+   AI cleanup pass — because the AI was unreachable, or the user interrupted the
+   partner mid-utterance. Blue + italic marks it as raw / unverified (Ken). */
+.turn-uncleaned {
+    color: var(--slot-initiative);
+    font-style: italic;
+}
+
+/* Now-playing — what the system is currently saying on the user's behalf, shown
+   as text so nothing is spoken invisibly (§7). A transient line in the log. */
+.now-playing {
+    margin: 0.25rem 0;
+    font-size: 0.95rem;
+    color: var(--slot-initiative);
+    font-style: italic;
+}
+.now-playing[hidden] { display: none; }
+.np-icon { font-style: normal; }
+
+/* Command Bar — the conversation control surface (Ken, June 29 2026): the
+   Start Listening / Start & End conversation / overrides / Settings controls in
+   one row of equal-width icon buttons (Rule 4). */
+#listenControls {
+    margin-top: 0.5rem;
+    flex: 0 0 auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--grid-gap);    /* Command Bar button spacing tracks the gap setting */
+}
+#listenControls > button {
+    flex: 1 1 0;
+    min-width: var(--btn-min-dim);
+    min-height: var(--btn-min-dim);
+}
+
+#listenBtn {
+    background: var(--header);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1.05rem;
+    cursor: pointer;
+}
+
+/* Command Bar buttons — slate-outlined like the former persistent overrides;
+   the session ones (start/end) and Settings sit in the same row, distinguished
+   by icon and (for End) color. */
+.cmd-btn {
+    background: #fff;
+    border: 2px solid var(--slot-persistent);
+    color: var(--slot-persistent);
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.cmd-btn:hover,
+.cmd-btn:focus-visible {
+    background: var(--slot-persistent);
+    color: #fff;
+    outline: none;
+}
+.cmd-btn-end {
+    border-color: #e0a4a0;
+    color: #c0392b;
+}
+.cmd-btn-end:hover,
+.cmd-btn-end:focus-visible {
+    background: #c0392b;
+    border-color: #c0392b;
+    color: #fff;
+}
+
+/* Recording indicator (Ken, July 18 2026) — the Listen button turns red and the
+   whole button slowly brightens and dims (the fill breathes) while the mic is live,
+   so it reads as "recording" without any screen-wide frame. */
+#listenBtn.listening {
+    background: #c0392b;
+    animation: listen-btn-pulse 2s ease-in-out infinite;
+}
+@keyframes listen-btn-pulse {
+    0%, 100% { filter: brightness(0.9); }
+    50%      { filter: brightness(1.3); }
+}
+
+/* "Don't save" toggle — selected (private) state is a filled amber button so the
+   user can see at a glance that the current conversation is NOT being recorded
+   (Rule 6: a sticky action shown as a selected button). */
+#privacyBtn.private-on {
+    background: #b9770e;
+    border-color: #b9770e;
+    color: #fff;
+}
+
+/* Region B — response palette. A grid of cards in fixed priority order (preferred
+   first, repair last). The column count adapts to viewport width but the order
+   never does, and it stays constant within a session — mode changes swap card
+   CONTENTS, never the geometry ("the cards changed", not "the screen changed",
+   §5). At RESPONDING width this reads as the 2×2 grid of the spec. */
+/* Response region: a fixed RESERVED footprint = the card grid + the "New 4"
+   button, with the "In my own words" input box overlaying it. Card grid is 2×2
+   when the dock is on a side, 1×4 when it's on the bottom (Ken). */
+#responseArea {
+    position: relative;
+    flex: 0 0 auto;
+    display: flex;
+    gap: var(--grid-gap);    /* rail width between the cards and the "New 4" button */
+    align-items: stretch;
+}
+.palette-grid {
+    flex: 1 1 auto;
+    display: grid;
+    gap: var(--grid-gap);    /* rail width between response cards */
+    align-items: stretch;
+}
+body.conv-side .palette-grid {
+    grid-template-columns: repeat(2, 1fr);   /* 2×2 */
+    grid-auto-rows: 1fr;
+}
+body.conv-bottom .palette-grid {
+    grid-template-columns: repeat(4, 1fr);   /* 1×4 */
+}
+
+/* Visible generation error in the response region (Ken, July 2026) — replaces the
+   blank/empty look when a generation call fails, since the status bar is hidden. */
+.palette-grid.has-error { display: flex; }
+.response-error {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    text-align: center;
+    border: 2px dashed var(--slot-dispreferred, #d9822b);
+    border-radius: 10px;
+    background: rgba(217, 130, 43, 0.08);
+}
+.response-error-msg { margin: 0; color: #8a4b00; font-weight: 600; }
+.response-error-retry {
+    border: 2px solid var(--slot-dispreferred, #d9822b);
+    background: #fff;
+    color: #8a4b00;
+    border-radius: 8px;
+    padding: 0.5rem 1.25rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.response-error-retry:hover { background: rgba(217, 130, 43, 0.15); }
+
+/* Error-log viewer (Settings → About). */
+#errorLogView {
+    width: 100%;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    white-space: pre;
+    overflow: auto;
+    resize: vertical;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 0.5rem;
+    background: #fafafa;
+    color: #333;
+}
+#errorLogActions { display: flex; gap: 0.5rem; margin-top: 0.4rem; }
+
+/* Settings-profiles controls (About tab) — a picker row + a save row. */
+.profiles-row { display: flex; gap: 0.5rem; margin-top: 0.4rem; align-items: center; flex-wrap: wrap; }
+.profiles-row #settingsProfileSelect,
+.profiles-row #settingsProfileNameInput { flex: 1 1 10rem; min-width: 0; }
+#settingsProfilesStatus:empty { display: none; }
+
+/* Each grid item is a CATEGORY CELL holding 1–2 stacked option buttons (the
+   "responses per category" setting). The reserved (doubled) height lives on the
+   cell; the card(s) inside split it. */
+.response-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--grid-gap);    /* rail width between the two stacked cards in a cell */
+    min-height: clamp(8rem, 18vh, 14rem);
+}
+.response-cell > .response-card,
+.response-cell > .response-card-empty {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
+/* Reserved empty slot — holds the footprint open at rest / between options.
+   Shows its SLOT color even when empty (the slot class supplies the tinted
+   background + colored left border); the empty treatment is just dashed + faded
+   + inert. So the four slot colors are visible before a conversation begins. */
+.response-card-empty {
+    border-style: dashed;
+    box-shadow: none;
+    cursor: default;
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+/* "In my own words" input box — overlays the response footprint (base UI NOT
+   blurred). Dismissed by Speak / Reframe / Cancel. */
+.composer-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    /* No HORIZONTAL inset: the controls must reach the response-footprint edges so
+       Speak/Reframe/Cancel line up with the card + "New 4" holes under one keyguard
+       (Spatial Stability). No framing border either (Ken): its rounded corner was
+       clipped at the footprint edges so it read as "cut off" — and a flush,
+       borderless container matches the Response Palette it overlays. */
+    padding: 0.6rem 0;
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: none;
+}
+.composer-overlay[hidden] { display: none; }
+.composer-overlay #composerInput {
+    flex: 1 1 auto;
+    min-height: 3rem;
+    padding: 0.6rem;
+    /* No edge in ANY state (Ken): the whole box is the tap target for accepting a
+       predicted word, so a border/outline read as a selection highlight. The box is
+       auto-focused when the composer opens, so we must also suppress the browser's
+       focus ring (outline) and any box-shadow — not just the border. */
+    border: none;
+    outline: none;
+    box-shadow: none;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 1.1rem;
+    resize: none;
+}
+/* Focus is what draws the ring; keep the input edgeless when selected too. */
+.composer-overlay #composerInput:focus,
+.composer-overlay #composerInput:focus-visible {
+    outline: none;
+    box-shadow: none;
+}
+/* Composer controls: Speak, Reframe and Cancel in a SINGLE horizontal row in
+   BOTH docks (Ken, July 2026). The row mirrors #responseArea's flex split — the
+   Speak+Reframe pair sits in a flex:9 region (matching the response-card region)
+   and Cancel in a flex:1 slot exactly the width of "New 4" — so one keyguard
+   still lines up with the card region + "New 4", and Speak/Reframe never stack. */
+.composer-overlay #composerControls {
+    flex: 0 0 auto;
+    display: flex;
+    gap: var(--grid-gap);      /* = #responseArea gap (card region ↔ "New 4") */
+    align-items: stretch;
+}
+/* Holds Speak + Reframe side by side; mirrors .palette-grid (flex:9 + its gap). */
+#composerResponses {
+    flex: 9 1 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;   /* Speak | Reframe, single row, both docks */
+    gap: var(--grid-gap);
+    align-items: stretch;
+}
+/* Cancel mirrors #regenerateBtn exactly: same flex (1 1 0), same --btn-min-dim
+   floor, and — like "New 4" — NO padding, so it's pixel-identical to "New 4" at
+   every viewport width (both are icon-only, so there's no label to clip). The
+   default .composer-btn padding (1.2rem) would otherwise make Cancel wider and
+   steal width from Speak/Reframe. */
+.composer-overlay #cancelComposerBtn {
+    flex: 1 1 0;
+    min-width: var(--btn-min-dim);
+    padding: 0;
+}
+
+/* Crossfade card contents on each render (≤200 ms, §10). Geometry is unchanged
+   so nothing relocates. */
+.palette-grid.palette-enter {
+    animation: palette-fade 0.2s ease-out;
+}
+@keyframes palette-fade {
+    from { opacity: 0.35; }
+    to   { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .palette-grid.palette-enter { animation: none; }
+    .response-card { transition: none; }
+    /* Keep the recording indicator visible, just steady (no pulse). */
+    #listenBtn.listening { animation: none; }
+}
+
+/* The response card (§4). Slot color: tinted fill, hued left border + badge. */
+.response-card {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(0.2rem, 0.6vh, 0.45rem);
+    text-align: left;
+    background: #fff;
+    border: 2px solid #dee2e6;
+    border-left-width: 6px;
+    border-radius: 10px;
+    /* vertical padding → vh, horizontal padding → vw (independent axes). */
+    padding: clamp(0.6rem, 1.4vh, 1.1rem) clamp(0.7rem, 1.2vw, 1.2rem);
+    cursor: pointer;
+    transition: box-shadow 0.12s, transform 0.05s;
+}
+.response-card:hover,
+.response-card:focus-visible {
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.16);
+    outline: none;
+}
+.response-card:active { transform: translateY(1px); }
+
+.response-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+/* Slot badge — the text leg of the triple coding. */
+.response-badge {
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    color: #fff;
+    border-radius: 4px;
+    padding: 0.15rem 0.45rem;
+}
+
+/* Latency dot — filled = speaks instantly; hollow = a generation round-trip on
+   selection (the user never taps into an unexpected wait, §4). */
+.response-latency {
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+    border: 2px solid currentColor;
+}
+.latency-instant .response-latency { background: currentColor; }
+.latency-roundtrip .response-latency { background: transparent; }
+
+/* Response text — the LARGE, easy-to-read primary element (no separate hint —
+   Ken). It IS the words TTS will speak, big enough to read at a glance. Fills the
+   card; clamps to a few lines if very long. */
+.response-text {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    font-size: calc(clamp(1.3rem, 2.6vh, 1.9rem) * var(--response-font-scale, 1));
+    font-weight: 600;
+    line-height: 1.18;
+    color: var(--ink);
+    overflow: hidden;
+}
+/* In a 2-up (stacked) category cell each card is half-height, so size the text
+   down a notch and clamp more tightly. */
+.response-card-half .response-text {
+    font-size: calc(clamp(1rem, 1.9vh, 1.4rem) * var(--response-font-scale, 1));
+    -webkit-line-clamp: 3;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    align-items: initial;
+}
+
+/* Round-trip card mid-generation: dim slightly so the wait reads as in-progress. */
+.response-card.working {
+    opacity: 0.55;
+    cursor: default;
+}
+
+/* Per-slot color application (border accent, badge, latency dot color). */
+.slot-preferred    { border-left-color: var(--slot-preferred);    background: var(--slot-preferred-tint); }
+.slot-dispreferred { border-left-color: var(--slot-dispreferred); background: var(--slot-dispreferred-tint); }
+.slot-initiative   { border-left-color: var(--slot-initiative);   background: var(--slot-initiative-tint); }
+.slot-repair       { border-left-color: var(--slot-repair);       background: var(--slot-repair-tint); }
+.slot-persistent   { border-left-color: var(--slot-persistent); }
+
+.slot-preferred .response-badge,
+.slot-preferred .response-latency    { color: var(--slot-preferred); }
+.slot-preferred .response-badge      { background: var(--slot-preferred); color: #fff; }
+.slot-dispreferred .response-badge,
+.slot-dispreferred .response-latency { color: var(--slot-dispreferred); }
+.slot-dispreferred .response-badge   { background: var(--slot-dispreferred); color: #fff; }
+.slot-initiative .response-badge,
+.slot-initiative .response-latency   { color: var(--slot-initiative); }
+.slot-initiative .response-badge     { background: var(--slot-initiative); color: #fff; }
+.slot-repair .response-badge,
+.slot-repair .response-latency       { color: var(--slot-repair); }
+.slot-repair .response-badge         { background: var(--slot-repair); color: #fff; }
+.slot-persistent .response-badge,
+.slot-persistent .response-latency   { color: var(--slot-persistent); }
+.slot-persistent .response-badge     { background: var(--slot-persistent); color: #fff; }
+
+/* --- Express Panel buttons. The grid MIRRORS the selected keyboard layout
+   (cell flex = the key's span), so the panel and the keyboard overlay 1:1 for a
+   single keyguard. Category-colored (secondary cue; text always shown), long
+   phrases ellipsis-truncate. --- */
+.ep-btn {
+    --ep-color: #546E7A;
+    --ep-tint: #eceff1;
+    min-width: 0;
+    /* Like the keyboard keys (.kbd-key): the row stretch drives the height, so
+       the button shrinks to fit the dock and never overflows / falls off. */
+    min-height: 0;
+    padding: 0.2rem 0.4rem;
+    border: 1px solid var(--ep-color);
+    border-left: 5px solid var(--ep-color);
+    border-radius: 8px;
+    background: var(--ep-tint);
+    color: var(--ink);
+    /* Base size scaled by the user-set Express Panel text size (Settings). */
+    font-size: calc(clamp(0.8rem, 1.4vh, 1.05rem) * var(--express-font-scale, 1));
+    font-weight: 600;
+    cursor: pointer;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+/* Word-wrap the phrase onto multiple lines (less need for ellipsis); clamp to
+   3 lines with an ellipsis fallback only for the very longest. */
+.ep-text {
+    white-space: normal;
+    overflow: hidden;
+    text-align: center;
+    line-height: 1.12;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
+.ep-btn:hover,
+.ep-btn:focus-visible {
+    background: #fff;
+    outline: 2px solid var(--ep-color);
+    outline-offset: -1px;
+}
+.ep-btn:active { transform: translateY(1px); }
+/* Armed: first tap of a required double-tap — clearly "waiting for confirm". */
+.ep-btn.ep-armed {
+    background: var(--ep-color);
+    color: #fff;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ep-color) 35%, transparent);
+}
+/* "In my own words" — the space-cell counterpart, distinct (dark) background. */
+.ep-btn.ep-imow {
+    --ep-color: #2c3e50;
+    background: #2c3e50;
+    color: #fff;
+}
+.ep-btn.ep-imow .ep-text { font-weight: 700; }
+.ep-btn.ep-imow:hover,
+.ep-btn.ep-imow:focus-visible { background: #1d2b38; color: #fff; outline-color: #1d2b38; }
+/* Choice chips — the alternatives the partner just offered, filled into the
+   reserved leading cells. Solid green (echoing the CHOICE response cards they
+   steer) so they read apart from the pastel phrases, and dashed-outlined to say
+   "this one is on offer right now", unlike the user's permanent phrases. */
+.ep-btn.ep-choice {
+    background: var(--ep-color);
+    color: #fff;
+    border-color: var(--ep-color);
+    border-style: dashed;
+    border-left-style: solid;
+}
+.ep-btn.ep-choice:hover,
+.ep-btn.ep-choice:focus-visible {
+    background: color-mix(in srgb, var(--ep-color) 82%, #000);
+    color: #fff;
+    outline-color: var(--ep-color);
+}
+/* Partner / Feeling influencer TOGGLES — solid fill so they read apart from the
+   pastel phrase buttons and from each other (distinct hues set inline). The
+   toggled-ON state adds a heavy ring + check so "this is active" is unmistakable
+   (Rule 6 — a sticky/latched action shows as a selected button). */
+.ep-btn.ep-partner,
+.ep-btn.ep-feeling {
+    background: var(--ep-color);
+    color: #fff;
+    border-color: var(--ep-color);
+}
+.ep-btn.ep-partner:hover, .ep-btn.ep-partner:focus-visible,
+.ep-btn.ep-feeling:hover, .ep-btn.ep-feeling:focus-visible {
+    background: color-mix(in srgb, var(--ep-color) 82%, #000);
+    color: #fff;
+    outline-color: var(--ep-color);
+}
+.ep-btn.ep-on {
+    box-shadow: inset 0 0 0 3px #fff, 0 0 0 3px var(--ep-color);
+    position: relative;
+    z-index: 1;
+}
+.ep-btn.ep-on .ep-text::after {
+    content: ' ✓';
+    font-weight: 800;
+}
+
+/* Inert grid spacer (matches a blank/pred or leftover key cell). */
+.ep-cell-blank { min-width: 0; }
+
+/* Icon-only control buttons (Rule 4). The glyph inherits the button's text
+   color (currentColor) and scales with the proportional font (sized in em). */
+.icon {
+    width: 1.5em;
+    height: 1.5em;
+    display: block;
+    flex: 0 0 auto;
+}
+.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* "Button size" applies to EVERY tappable element on EVERY surface (Ken, June 29
+   2026): a button is anything you can tap that has an action — Command Bar,
+   response cards, "New 4", composer, Express Panel, and the Settings / About Me
+   controls. They are all at least --btn-min-dim tall (the critical tap
+   dimension); icon-only buttons are also at least that wide (square-ish targets).
+   EXCEPTION: the on-screen-keyboard keys (.kbd-key / .kbd-tool / .kbd-pred-btn)
+   AND the Express Panel buttons (.ep-btn) are sized BY the dock band — which is
+   itself derived from --btn-min-dim — so a hard min there would overflow the
+   fixed dock and push buttons off the panel; they scale through the dock instead.
+   (The Express Panel maps 1:1 onto the keyboard, so its buttons must fit exactly
+   like the keys and never fall off — Ken, June 29 2026.) */
+button:not(.kbd-key):not(.kbd-tool):not(.kbd-pred-btn):not(.ep-btn) {
+    min-height: var(--btn-min-dim);
+}
+.icon-btn { min-width: var(--btn-min-dim); }
+
+/* "New 4" — regenerate a different set of four. Icon button to the right of the
+   response grid, spanning its full height (2 rows for 2×2, 1 for 1×4). */
+.regenerate-btn {
+    flex: 0 0 auto;
+    align-self: stretch;
+    width: var(--btn-min-dim);   /* a button — at least the button size wide */
+    background: #fff;
+    border: 2px solid var(--slot-persistent);
+    color: var(--slot-persistent);
+    border-radius: 8px;
+    cursor: pointer;
+}
+.regenerate-btn:hover,
+.regenerate-btn:focus-visible {
+    background: var(--slot-persistent);
+    color: #fff;
+    outline: none;
+}
+
+/* --- Express Panel editor (Settings → Express Panel): an ordered list of typed items. --- */
+#expressEditor { display: flex; flex-direction: column; gap: 0.5rem; }
+.ee-toolbar { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+.ee-toolbar .ee-add { background: #2c3e50; color: #fff; border: none; border-radius: 6px; padding: 0.4rem 0.7rem; font-weight: 600; cursor: pointer; }
+.ee-toolbar .ee-add:hover { filter: brightness(1.1); }
+.ee-toolbar .ee-reset { margin-left: auto; background: #fff; color: #c0392b; border: 1px solid #e0a4a0; border-radius: 6px; padding: 0.4rem 0.7rem; cursor: pointer; }
+.ee-toolbar .ee-reset:hover { background: #c0392b; color: #fff; }
+.ee-list { display: flex; flex-direction: column; gap: 0.35rem; }
+.ee-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem; border: 1px solid #d6dde2; border-radius: 8px; background: #fff; }
+.ee-badge { flex: 0 0 auto; font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #fff; border-radius: 4px; padding: 0.25rem 0.4rem; min-width: 4.2rem; text-align: center; }
+.ee-badge-phrase  { background: #546E7A; }
+.ee-badge-partner { background: #5D4037; }
+.ee-badge-feeling { background: #00838F; }
+.ee-fields { display: flex; flex: 1 1 auto; gap: 0.4rem; flex-wrap: wrap; min-width: 0; }
+.ee-fields input, .ee-fields select { flex: 1 1 8rem; min-width: 0; padding: 0.35rem 0.5rem; border: 1px solid #c4ccd2; border-radius: 6px; font-size: 0.95rem; }
+.ee-fields .ee-name-select { flex: 2 1 16rem; } /* the "Choose a name" dropdown — twice as wide */
+.ee-tools { flex: 0 0 auto; display: flex; gap: 0.25rem; }
+.ee-tools button { width: 2rem; height: 2rem; border: 1px solid #c4ccd2; background: #f4f6f8; border-radius: 6px; cursor: pointer; font-size: 1rem; line-height: 1; }
+.ee-tools button:disabled { opacity: 0.35; cursor: default; }
+.ee-tools .ee-del { color: #c0392b; border-color: #e0a4a0; }
+/* "Save" is a text button, not a 2rem icon: give it its own width + primary color. */
+.ee-tools .ee-save { width: auto; padding: 0 0.7rem; background: #2c7a3f; color: #fff; border: none; font-weight: 600; }
+.ee-tools .ee-save:hover { filter: brightness(1.1); }
+/* Button-color picker — pick by color, not by (meaningless) category name. */
+.ee-swatches { flex: 0 0 auto; display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
+.ee-swatch { width: 1.7rem; height: 1.7rem; padding: 0; border-radius: 5px; border: 2px solid rgba(0, 0, 0, 0.25); cursor: pointer; }
+.ee-swatch-on { outline: 3px solid #2c3e50; outline-offset: 1px; border-color: #fff; }
+.ee-swatch-static { cursor: default; }
+/* Per-row insert button + inline type picker (insert a new item in place). */
+.ee-hint { margin: 0.25rem 0 0.5rem; }
+.ee-ins { flex: 0 0 auto; width: 2rem; height: 2rem; border: 1px solid #c4ccd2; background: #f4f6f8; border-radius: 6px; cursor: pointer; font-size: 1.05rem; line-height: 1; }
+.ee-ins-on { background: #2c3e50; color: #fff; border-color: #2c3e50; }
+.ee-insertbar { display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0.5rem; margin-bottom: 0.35rem; border: 1px dashed #9aa7b0; border-radius: 8px; background: #eef2f5; flex-wrap: wrap; }
+.ee-insertbar-label { font-size: 0.85rem; color: #555; }
+.ee-insertbar .ee-add { background: #2c3e50; color: #fff; border: none; border-radius: 6px; padding: 0.35rem 0.7rem; font-weight: 600; cursor: pointer; }
+.ee-insertbar-cancel { margin-left: auto; width: 1.9rem; height: 1.9rem; border: 1px solid #c4ccd2; background: #fff; border-radius: 6px; color: #c0392b; cursor: pointer; }
+
+/* Control-phrases editor (Settings → Controls). Reuses .ee-row/.ee-list/.ee-tools;
+   adds section grouping and grows the bare text input (it isn't wrapped in
+   .ee-fields). */
+.cpe-section { margin-bottom: 1.1rem; }
+.cpe-section > label { display: block; font-weight: 600; margin-bottom: 0.2rem; }
+.cpe-section .ee-row { margin-top: 0.35rem; }
+.cpe-section .ee-row > input { flex: 1 1 auto; min-width: 0; padding: 0.4rem 0.5rem; border: 1px solid #c4ccd2; border-radius: 6px; font-size: 0.95rem; }
+.cpe-note { font-style: italic; margin: 0.75rem 0; }
+#controlEditor .ee-add { margin-top: 0.45rem; background: #2c3e50; color: #fff; border: none; border-radius: 6px; padding: 0.4rem 0.7rem; font-weight: 600; cursor: pointer; }
+#controlEditor .ee-add:hover { filter: brightness(1.1); }
+#controlEditor .ee-reset { display: inline-block; margin-top: 0.5rem; background: #fff; color: #c0392b; border: 1px solid #e0a4a0; border-radius: 6px; padding: 0.45rem 0.8rem; cursor: pointer; }
+#controlEditor .ee-reset:hover { background: #c0392b; color: #fff; }
+
+/* Engine diagnostics — collapsed <details> for development / bug reports. The
+   user-facing inference is the mode chip in Region A. */
+#engineDetails {
+    margin-top: 0.5rem;
+}
+#engineDetails summary {
+    font-size: 0.8rem;
+    color: #95a5a6;
+    cursor: pointer;
+    padding: 0.25rem 0;
+}
+#enginePanel {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 0.9rem;
+    background: #f4f6f8;
+}
+.engine-row {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.15rem 0;
+}
+.engine-label {
+    flex: 0 0 9rem;
+    color: #7f8c8d;
+}
+.engine-val {
+    font-weight: 600;
+    color: #2c3e50;
+    word-break: break-word;
+}
+.engine-val.capture-on {
+    color: #c0392b;
+}
+.engine-val.capture-off {
+    color: #95a5a6;
+}
+.engine-val.floor-self {
+    color: #2980b9;
+}
+.engine-val.floor-partner {
+    color: #d35400;
+}
+.engine-val.floor-open {
+    color: #95a5a6;
+}
+
+/* Region C — persistent controls (§3.3). The four CA overrides: always present,
+   always this order, in every mode, slate (quiet, recognized by position not
+   salience). These are the user's escape hatch when the inference is wrong, so
+   they must never move. */
+#overrideControls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.persist-btn {
+    flex: 1 1 0;
+    min-width: 6rem;
+    /* Height comes from the shared control-row height (--btn-min-dim) via stretch,
+       NOT vertical padding — otherwise this row would grow taller than the
+       keyboard's toolbar and misalign the grids beneath them. Horizontal padding
+       only; the button centers its text. */
+    min-height: var(--btn-min-dim);
+    background: #fff;
+    border: 2px solid var(--slot-persistent);
+    color: var(--slot-persistent);
+    border-radius: 8px;
+    padding: 0 0.8rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+.persist-btn:hover,
+.persist-btn:focus-visible {
+    background: var(--slot-persistent);
+    color: #fff;
+    outline: none;
+}
+
+/* Session-level controls — start / end the conversation. Separated from the CA
+   overrides so the four overrides keep their stable identity. */
+#sessionControls {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+.session-btn {
+    flex: 1 1 0;
+    background: var(--header);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 0.65rem 0.8rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.session-btn:hover { filter: brightness(1.1); }
+.session-btn-end {
+    background: #fff;
+    color: #c0392b;
+    border: 2px solid #e0a4a0;
+}
+.session-btn-end:hover {
+    background: #c0392b;
+    color: #fff;
+    filter: none;
+}
+
+/* Region D — composer access. */
+.composer-panel { padding: 0.85rem; }
+
+#composerInput {
+    width: 100%;
+    padding: 0.6rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-family: inherit;
+    /* User-settable "In my own words" text size (Settings → Speech & Input). */
+    font-size: calc(1.1rem * var(--composer-font-scale, 1));
+    resize: vertical;
+}
+
+#composerControls {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.composer-btn {
+    flex: 1;
+    border-radius: 6px;
+    padding: 0.65rem 1.2rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 2px solid var(--header);
+    background: #fff;
+    color: var(--header);
+}
+.composer-btn:hover { background: #eef1f4; }
+.composer-btn-primary {
+    background: var(--header);
+    color: #fff;
+}
+.composer-btn-primary:hover { filter: brightness(1.1); background: var(--header); }
+.composer-btn-quiet {
+    flex: 0 0 auto;
+    /* Solid dark border matching Reframe (.composer-btn's var(--header)) (Ken). */
+    border-color: var(--header);
+    color: #666;
+}
+
+/* Status bar removed from view (Ken) — kept as a visually-hidden aria-live
+   region so status/errors are still announced to screen readers and available
+   for debugging, without occupying screen space. */
+#statusBar {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* --- Settings dialog --- */
+
+/* Spatial Stability (Ken June 2026): Settings is no longer a floating/draggable
+   modal — it fills the MAIN-AREA rect (the same footprint as the conversation
+   main area and About Me), leaving the DOCK region for the keyboard, so one
+   keyguard fits every screen. Positioned per the fundamental layout (conv-*).
+   Still a <dialog> opened with showModal() (its backdrop dims + blocks the app
+   behind, and it shares the top layer the keyboard reparents into). */
+/* Generic dialog base — keeps the small confirm/danger dialog centered (the UA
+   centers a modal via inset:0 + margin:auto, which display:flex below would
+   otherwise drop, so restore it here). #settingsDialog overrides all of this. */
+dialog {
+    border: none;
+    padding: 0;
+    inset: 0;
+    margin: auto;
+}
+
+/* Flex column (header + footer pinned, content scrolls) only when the dialog is
+   actually open — scoping to [open] so it doesn't override the UA's
+   `dialog:not([open]) { display: none }` and leave the panel visible at startup. */
+dialog[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Settings fills the viewport, then carves out the dock region per the
+   fundamental layout so it occupies exactly the main-area rect (the keyboard
+   fills the dock). A flat full-rect panel (no rounding/shadow), like About Me. */
+#settingsDialog {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    width: auto;
+    height: auto;
+    max-width: none;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: #fff;
+    overflow: hidden;
+}
+body.conv-side-right #settingsDialog { right: calc(var(--dock-w) + var(--dock-sep)); }
+body.conv-side-left  #settingsDialog { left: calc(var(--dock-w) + var(--dock-sep)); }
+body.conv-bottom     #settingsDialog { bottom: calc(var(--dock-h) + var(--dock-sep)); }
+body.conv-bottom .tab-panel.active {
+    column-count: 3;
+}
+body.conv-bottom .tab-panel[data-tab="about"].active {
+    column-count: 2;
+}
+/* Tighten group spacing in the shorter bottom-dock panel so the densest tab
+   (Conversation) fits without scrolling. */
+body.conv-bottom .setting-group {
+    margin-bottom: 0.6rem;
+}
+
+dialog::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+/* Draggable title bar (see initSettingsDrag in app.js). The panel stays modal —
+   the backdrop still blocks the app behind it — but can be moved aside so live
+   UI changes are visible behind it. */
+#settingsHeader {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 0.6rem 1rem;
+    background: #2c3e50;
+    color: #fff;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+#settingsTitle {
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+#settingsLayout {
+    display: flex;
+    /* min-height:0 lets this flex child shrink below its content so
+       #settingsContent can overflow-scroll instead of stretching the dialog. */
+    flex: 1;
+    min-height: 0;
+}
+
+#settingsTabs {
+    width: 140px;
+    background: #f4f5f6;
+    border-right: 1px solid #ddd;
+    padding-top: 0.75rem;
+    flex-shrink: 0;
+}
+
+.settings-tab {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.settings-tab:hover {
+    background: #e0e0e0;
+}
+
+.settings-tab.active {
+    background: #d8e6f8;
+    font-weight: 600;
+    color: #06c;
+}
+
+/* Keyboard focus ring for arrow-key tab navigation (the tabs are focusable divs). */
+.settings-tab:focus-visible {
+    outline: 3px solid #06c;
+    outline-offset: -3px;
+}
+
+#settingsContent {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.tab-panel {
+    display: none;
+}
+
+/* Two-column layout so the denser tabs fit WITHOUT scrolling (scrolling is
+   problematic for this audience — Ken). Each setting-group stays intact across
+   the column break. The About tab is prose, so it stays single-column.
+   Surface padding = the universal gap, but with a small minimum so the controls
+   never sit flush against the panel edge at the default (zero) gap (Ken, June 29
+   2026 — "a couple of millimeters of padding"). The Express Panel and About Me
+   tabs are excluded (Express needs the full width for its rows; About Me is its
+   own full-screen overlay). */
+.tab-panel.active {
+    display: block;
+    column-count: 2;
+    column-gap: 1.75rem;
+    padding: max(var(--grid-gap), 0.6rem);
+}
+/* About is prose — take it out of multi-column entirely (column-count:1 still
+   creates a multicol context that mis-sizes height; `auto` is plain block). The
+   taller panel fits it without scrolling. */
+.tab-panel[data-tab="about"].active {
+    column-count: auto;
+}
+/* The Express Panel editor is a vertical list of rows that needs the full width
+   (so each row's fields — incl. the wider "Choose a name" dropdown — fit on one
+   line). Keep it single-column, not flowed into the dense multi-column layout. */
+.tab-panel[data-tab="express"].active,
+body.conv-bottom .tab-panel[data-tab="express"].active {
+    column-count: auto;
+    padding: 0;   /* the editor rows manage their own spacing and need full width */
+}
+.setting-group {
+    break-inside: avoid;
+}
+
+/* Settings form elements */
+
+dialog label {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+}
+
+dialog input,
+dialog select,
+dialog textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+dialog textarea {
+    font-family: inherit;
+    resize: vertical;
+}
+
+dialog select {
+    background: white;
+    cursor: pointer;
+}
+
+#apiKeyInput {
+    -webkit-text-security: disc;
+}
+
+/* API-key row: the field + a Paste button (replaces the keyboard's removed
+   clipboard toolbar for pasting a long `sk-ant-…` key). */
+#apiKeyRow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+#apiKeyRow #apiKeyInput {
+    /* The key is masked to dots, so it needs no room to read — keep it short so
+       the Paste button shows fully and the column isn't crowded (Ken). */
+    flex: 0 1 9rem;
+    width: auto;
+    min-width: 0;
+}
+#pasteApiKeyBtn {
+    flex: 0 0 auto;
+    padding: 0.5rem 0.9rem;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: #fff;
+    cursor: pointer;
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+#pasteApiKeyBtn:hover { background: #eef1f4; }
+
+/* "Test" button beside the API key field — verifies the key against the API. */
+#testApiKeyBtn {
+    flex: 0 0 auto;
+    padding: 0.5rem 0.9rem;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: #fff;
+    cursor: pointer;
+}
+#testApiKeyBtn:hover { background: #eef1f4; }
+#testApiKeyBtn:disabled { opacity: 0.6; cursor: default; }
+
+/* Format-warning / verify-result line under the API key field (Ken, July 2026). */
+.api-key-status {
+    margin: 0.45rem 0 0;
+    font-size: 0.9rem;
+    line-height: 1.35;
+}
+.api-key-status[hidden] { display: none; }
+.api-key-status.warn { color: #b3261e; }
+.api-key-status.ok   { color: #1b7f34; }
+.api-key-status.checking { color: #555; }
+
+/* Pre-start "no API key" prompt — a visible card above Start. The status bar is
+   hidden (v0.5.2), so this is how the user is told a key is missing. Amber
+   "action needed" accent; informational (they can still Start without a key). */
+#apiKeyPrompt {
+    flex: 0 0 auto;
+    max-width: 34rem;
+    background: #fff8e6;
+    border: 1px solid #e6c34a;
+    border-left: 6px solid #d99a00;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    text-align: center;
+}
+#apiKeyPrompt[hidden] { display: none; }
+.apikey-prompt-title { margin: 0 0 0.9rem; font-weight: 700; color: #7a5300; line-height: 1.45; }
+.apikey-prompt-actions {
+    display: flex;
+    gap: 0.6rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+#apiKeyPromptBtn {
+    background: #fff; color: #7a5300; border: 2px solid #d99a00;
+    padding: 0.7rem 1.4rem; border-radius: 8px; font-size: 1rem; cursor: pointer;
+}
+#apiKeyPromptBtn:hover { background: #fdeec2; }
+/* Continue is the primary action — proceed into the app (the API key is optional). */
+.apikey-continue {
+    background: #2c3e50; color: #fff; border: none;
+    padding: 0.7rem 1.4rem; border-radius: 8px; font-size: 1rem; cursor: pointer;
+}
+.apikey-continue:hover { background: #22303d; }
+
+#testVoiceBtn {
+    margin-top: 0.4rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.setting-group {
+    margin-bottom: 1.25rem;
+}
+
+#dataFolderRow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+#dataFolderName {
+    flex: 1;
+    font-size: 0.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#dataFolderName:not(.placeholder) {
+    font-weight: 600;
+}
+
+#pickFolderBtn {
+    padding: 0.3rem 0.7rem;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.setting-hint {
+    font-size: 0.8rem;
+    color: #777;
+    margin-top: 0.5rem;
+    line-height: 1.4;
+}
+
+/* Binary slider (Left / Right) for the side-dock position. */
+.slider-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.35rem;
+}
+
+.slider-end {
+    font-size: 0.9rem;
+    color: #444;
+}
+
+/* Range sliders (Button size / spacing / minimum gap) fill the row between
+   their − / + stepper buttons. */
+.size-slider {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    cursor: pointer;
+}
+
+/* − / + fine-step buttons flanking a size slider (Ken: precise control vs. the
+   slider racing right when dragged). Square-ish, easy targets. */
+.slider-step {
+    flex: 0 0 auto;
+    width: 2.6rem;
+    padding: 0;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: #fff;
+    color: #2c3e50;
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+}
+.slider-step:hover { background: #eef1f4; }
+.slider-step:active { transform: translateY(1px); }
+
+/* "Reset buttons and gaps to default" — a quiet full-width action. */
+.reset-sizing-btn {
+    width: 100%;
+    padding: 0.45rem 0.7rem;
+    border: 1px solid #bbb;
+    border-radius: 6px;
+    background: #fff;
+    color: #2c3e50;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+.reset-sizing-btn:hover { background: #eef1f4; }
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 3rem;
+    height: 1.5rem;
+    flex-shrink: 0;
+}
+
+.switch input {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+}
+
+.switch-track {
+    position: absolute;
+    inset: 0;
+    background: #c9d2d8;
+    border-radius: 1.5rem;
+    transition: background 0.15s;
+}
+
+.switch-track::before {
+    content: '';
+    position: absolute;
+    top: 0.15rem;
+    left: 0.15rem;
+    width: 1.2rem;
+    height: 1.2rem;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s;
+}
+
+.switch input:checked + .switch-track {
+    background: #2c3e50;
+}
+
+.switch input:checked + .switch-track::before {
+    transform: translateX(1.5rem);
+}
+
+dialog label.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 400;
+    margin-bottom: 0;
+    cursor: pointer;
+}
+
+label.checkbox-label input[type="checkbox"] {
+    width: auto;
+    flex-shrink: 0;
+}
+
+.radio-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.25rem;
+}
+
+dialog label.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 400;
+    margin-bottom: 0;
+    cursor: pointer;
+}
+
+label.radio-label input[type="radio"] {
+    width: auto;
+    flex-shrink: 0;
+}
+
+/* About tab */
+
+.tab-panel[data-tab="about"] h3 {
+    font-size: 1.1rem;
+    margin-bottom: 0.25rem;
+}
+
+.about-version {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 1rem;
+}
+
+.about-description {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin-bottom: 1rem;
+}
+
+.usage-group #usageDisplay {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    margin: 0.25rem 0;
+}
+
+#usageCost {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #1a1a1a;
+}
+
+#resetUsageBtn {
+    padding: 0.3rem 0.7rem;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.about-license {
+    font-size: 0.85rem;
+    color: #555;
+    margin-bottom: 0.5rem;
+}
+
+.about-link a {
+    color: #06c;
+    text-decoration: none;
+}
+
+.about-link a:hover {
+    text-decoration: underline;
+}
+
+/* Dialog footer */
+
+.dialog-actions {
+    display: flex;
+    gap: var(--grid-gap);
+    justify-content: flex-end;
+    padding: var(--grid-gap);
+    border-top: 1px solid #ddd;
+    background: #f9f9f9;
+    flex-shrink: 0;
+}
+
+.dialog-actions button {
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+/* --- Worldview "About Me" questionnaire --- */
+
+/* About Me is an ordinary Settings tab (Ken, July 2026): it renders into its
+   tab-panel with no title bar and no "Done" button — the shared Settings Close
+   button dismisses it. The panel fills the settings content area and lets its
+   inner #worldviewContent be the single scroll container (so the existing
+   scroll-to-top / scroll-into-view logic in worldview-ui.js keeps working). */
+.tab-panel[data-tab="aboutme"].active,
+body.conv-bottom .tab-panel[data-tab="aboutme"].active {
+    column-count: auto;   /* single-column, full width — like the Express Panel tab */
+    padding: 0;           /* #worldviewContent manages its own surface padding */
+    height: 100%;         /* fill the content area so the inner div scrolls */
+}
+
+.wv-page-title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #2c3e50;
+    margin: 0.25rem 0 0.75rem;
+}
+
+/* Wide, high-contrast scrollbars for the long scroll areas — far easier to grab
+   for users with limited motor control (Ken, June 2026). Chromium (Edge/Chrome,
+   the Surface browsers) honours ::-webkit-scrollbar width. */
+#worldviewContent::-webkit-scrollbar,
+#settingsContent::-webkit-scrollbar {
+    width: 22px;
+}
+
+#worldviewContent::-webkit-scrollbar-track,
+#settingsContent::-webkit-scrollbar-track {
+    background: #e2e6ea;
+}
+
+#worldviewContent::-webkit-scrollbar-thumb,
+#settingsContent::-webkit-scrollbar-thumb {
+    background: #8a97a4;
+    border-radius: 11px;
+    border: 3px solid #e2e6ea;   /* track-coloured inset around the thumb */
+}
+
+#worldviewContent::-webkit-scrollbar-thumb:hover,
+#worldviewContent::-webkit-scrollbar-thumb:active,
+#settingsContent::-webkit-scrollbar-thumb:hover,
+#settingsContent::-webkit-scrollbar-thumb:active {
+    background: #66727e;
+}
+
+#worldviewContent {
+    height: 100%;
+    overflow-y: auto;   /* the About Me tab's scroll container */
+    width: 100%;
+    /* The Settings dialog already carves out the dock region, so this content box
+       is "settings area − keyboard"; no max-width cap, so the questions use all of
+       that space. */
+    padding: max(var(--grid-gap), 0.6rem);   /* surface padding = the universal gap (Ken) */
+}
+
+.wv-intro {
+    color: #555;
+    line-height: 1.5;
+    margin-bottom: 1.25rem;
+}
+
+.wv-section-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #444;
+    margin: 1.25rem 0 0.5rem;
+}
+
+.wv-person-about {
+    color: #555;
+    line-height: 1.4;
+    margin: 0.25rem 0 0.5rem;
+}
+
+.wv-person-form .wv-person-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Shared style for checkbox rows in the People editor (Lives with me, Private) */
+.wv-person-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #555;
+    font-size: 0.95rem;
+    cursor: pointer;
+    padding: 0.1rem 0;
+}
+
+.wv-person-checkbox-row input[type="checkbox"] {
+    width: 1.1rem;
+    height: 1.1rem;
+    flex-shrink: 0;
+}
+
+/* Distinct badge for Private people (different from the grey "Prefer not to say") */
+.wv-badge-private {
+    background: #e8eaf6;
+    color: #3949ab;
+    border: 1px solid #9fa8da;
+}
+
+/* Privacy note on questionnaire fields that are private by default (e.g. A5) */
+.wv-private-note {
+    font-size: 0.8rem;
+    color: #5c6bc0;
+    margin: 0.1rem 0 0.5rem;
+    padding: 0.25rem 0.5rem;
+    background: #f3f4ff;
+    border-radius: 4px;
+}
+
+/* Module-level note shown at the top of a module (e.g. "Private by default" on A5) */
+.wv-module-note {
+    font-size: 0.85rem;
+    color: #5c6bc0;
+    background: #f3f4ff;
+    border: 1px solid #c5cae9;
+    border-radius: 6px;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 0.75rem;
+    line-height: 1.5;
+}
+
+/* Tags row on a person card (e.g. "Lives with me") */
+.wv-person-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.25rem 0 0.4rem;
+}
+
+.wv-person-tag {
+    font-size: 0.8rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+.wv-person-tag-lives {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #a5d6a7;
+}
+
+.wv-folder-prompt {
+    background: #e3f2fd;
+    border: 1px solid #90caf9;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+.wv-folder-prompt-text {
+    color: #0d47a1;
+    line-height: 1.5;
+    margin: 0 0 0.75rem;
+}
+
+.wv-folder-prompt-btn {
+    background: #1976d2;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 0.7rem 1.1rem;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.wv-folder-prompt-btn:hover {
+    background: #1565c0;
+}
+
+.wv-folder-prompt-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.wv-module-row {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    text-align: left;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+}
+
+.wv-module-row:hover {
+    border-color: #2c3e50;
+}
+
+.wv-module-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.wv-module-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.wv-module-meta {
+    font-size: 0.85rem;
+    color: #777;
+    margin: 0.15rem 0 0.4rem;
+}
+
+.wv-progress {
+    height: 6px;
+    background: #eee;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.wv-progress-fill {
+    height: 100%;
+    background: #43a047;
+    transition: width 0.2s;
+}
+
+.wv-chevron {
+    font-size: 1.6rem;
+    color: #bbb;
+    padding-left: 0.75rem;
+}
+
+.wv-back {
+    background: transparent;
+    border: none;
+    color: #06c;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0.25rem 0;
+    margin-bottom: 0.75rem;
+}
+
+.wv-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.wv-card.wv-flash {
+    animation: wv-flash 1.2s ease-out;
+}
+
+@keyframes wv-flash {
+    0% { border-color: #ffca28; box-shadow: 0 0 0 3px rgba(255, 202, 40, 0.4); }
+    100% { border-color: #e0e0e0; box-shadow: none; }
+}
+
+.wv-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+}
+
+.wv-question {
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.wv-badge {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+.wv-badge-answered {
+    background: #e8f5e9;
+    color: #2e7d32;
+}
+
+.wv-badge-declined {
+    background: #eceff1;
+    color: #607d8b;
+}
+
+.wv-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.6rem;
+}
+
+.wv-chip {
+    background: #f8f9fa;
+    border: 2px solid #dee2e6;
+    border-radius: 20px;
+    padding: 0.45rem 0.9rem;
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+.wv-chip:hover {
+    border-color: #2c3e50;
+}
+
+.wv-chip-on {
+    background: #2c3e50;
+    color: white;
+    border-color: #2c3e50;
+}
+
+.wv-own,
+.wv-entry-add {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.wv-text {
+    flex: 1;
+    min-width: 0;
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-family: inherit;
+}
+
+.wv-text-sub {
+    flex: 1 1 40%;
+}
+
+/* Danger confirmation modal — deliberately distinct from routine/permission
+   dialogs so a destructive action reads as dangerous (Ken, June 15 2026). */
+.danger-dialog {
+    border: none;
+    border-top: 6px solid #c62828;
+    border-radius: 10px;
+    padding: 1.5rem;
+    max-width: 26rem;
+    width: calc(100vw - 2rem);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+    font-family: inherit;
+}
+
+.danger-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+}
+
+.danger-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.75rem;
+}
+
+.danger-mark {
+    font-size: 1.6rem;
+    line-height: 1;
+    color: #c62828;
+}
+
+.danger-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: #c62828;
+}
+
+.danger-body {
+    margin: 0 0 1.25rem;
+    color: #333;
+    line-height: 1.5;
+    /* confirmDanger sets this with textContent, so a body containing newlines (e.g.
+       the import dialog listing what a backup holds) would otherwise render as one
+       run-on paragraph. pre-line honors the line breaks while still collapsing
+       runs of spaces. No effect on single-line bodies. */
+    white-space: pre-line;
+}
+
+/* Storage durability notice (device-storage platforms only). A refused persistence
+   grant means the data can be erased after ~7 days of non-use, so the warning state
+   is deliberately conspicuous rather than a quiet grey hint. */
+.storage-ok {
+    color: var(--slot-preferred);
+    font-weight: 600;
+}
+.storage-warn {
+    color: #8a4b00;
+    font-weight: 600;
+    background: var(--slot-dispreferred-tint);
+    border-left: 4px solid var(--slot-dispreferred);
+    padding: 0.5rem 0.7rem;
+    border-radius: 0 0.3rem 0.3rem 0;
+}
+
+.danger-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+}
+
+.danger-cancel,
+.danger-confirm {
+    padding: 0.7rem 1.1rem;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.danger-cancel {
+    background: #f0f0f0;
+    border: 1px solid #ccc;
+    color: #333;
+}
+
+.danger-confirm {
+    background: #c62828;
+    border: 1px solid #c62828;
+    color: #fff;
+}
+
+.danger-confirm:hover {
+    background: #b71c1c;
+}
+
+.danger-cancel:hover {
+    background: #e4e4e4;
+}
+
+/* --- "What's new" post-update notice (whats-new.js). Rendered as a card WITHIN the
+   pre-start block, i.e. inside the Transcript control's footprint (Ken, July 4 2026).
+   The transcript is a keyguard OPENING, so the whole notice — including its "Got it"
+   button — stays reachable and unobscured (Spatial Stability). Shown after the user
+   presses Start (the app has already re-rendered itself post-update, so it knows the
+   transcript's location); "Got it" dismisses it and enters the conversation. --- */
+#whatsNewPanel {
+    /* Fill the ENTIRE transcript control (Ken) so the scrolling list of notes gets
+       the full height — grows to fill vertically, stretches to fill horizontally. */
+    flex: 1 1 auto;
+    align-self: stretch;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border: 1px solid #b7c0c8;              /* match the conversation box */
+    border-top: 6px solid var(--slot-initiative);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+}
+
+#whatsNewPanel[hidden] {
+    display: none;
+}
+
+.whatsnew-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    /* Title left, Close right — one compact row so the notes list gets the height. */
+    justify-content: space-between;
+    margin-bottom: 0.4rem;
+}
+
+.whatsnew-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--slot-initiative);
+    /* Take the row's width and truncate rather than wrap, so the header stays one line. */
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.whatsnew-list {
+    /* Fill the rest of the card and scroll internally. */
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 0;
+    padding-left: 1.25rem;
+    overflow-y: auto;
+    color: #333;
+    line-height: 1.5;
+}
+
+.whatsnew-list li {
+    margin-bottom: 0.5rem;
+}
+
+/* #whatsNewPanel qualifier gives this higher specificity than the global
+   button { min-height: var(--btn-min-dim) } floor, so the button can be short. */
+#whatsNewPanel .whatsnew-ok {
+    /* Exempt from the global button-size floor: this sits in the transcript opening
+       (not a keyguard hole), and a short button in the header row leaves the notes
+       list more room to read (Ken). */
+    flex: 0 0 auto;
+    min-height: 0;
+    padding: 0.35rem 1.3rem;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    background: var(--slot-initiative);
+    border: 1px solid var(--slot-initiative);
+    color: #fff;
+}
+
+#whatsNewPanel .whatsnew-ok:hover {
+    background: #0d4f9e;
+}
+
+.wv-select {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-family: inherit;
+    background: #fff;
+}
+
+.wv-entry-list {
+    margin-bottom: 0.5rem;
+}
+
+.wv-entry {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f8f9fa;
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    margin-bottom: 0.3rem;
+    font-size: 0.95rem;
+}
+
+.wv-entry-remove {
+    background: transparent;
+    border: none;
+    color: #c0392b;
+    cursor: pointer;
+    font-size: 0.95rem;
+}
+
+.wv-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+}
+
+.wv-btn {
+    border-radius: 6px;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.95rem;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    background: #f8f9fa;
+}
+
+.wv-btn-primary {
+    background: #2c3e50;
+    color: white;
+    border-color: #2c3e50;
+}
+
+.wv-btn-speak {
+    background: #e3f2fd;
+    border-color: #90caf9;
+    color: #1565c0;
+}
+
+.wv-btn-speak:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.wv-btn-link {
+    background: transparent;
+    border: none;
+    color: #607d8b;
+    padding: 0.5rem 0.4rem;
+}
+
+.wv-btn-link:hover {
+    color: #2c3e50;
+    text-decoration: underline;
+}
+
+.wv-btn-danger {
+    background: #fff;
+    border-color: #e57373;
+    color: #c62828;
+}
+
+.wv-home-footer {
+    margin-top: 1.5rem;
+}
+
+.wv-home-footer .wv-btn {
+    width: 100%;
+    padding: 0.7rem;
+    font-size: 1rem;
+}
+
+/* --- App virtual keyboard --- */
+
+#appKeyboard {
+    position: fixed;
+    z-index: 300;            /* above the worldview overlay (200) */
+    background: #e9edf0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--grid-gap);    /* between key rows — keyguard bar width (settable) */
+    touch-action: manipulation;
+    user-select: none;
+}
+
+/* Bottom dock — conversation composer (competes for vertical space, so it's a
+   full-width strip along the bottom). Window-aware: capped to a share of the
+   viewport height so a short window shrinks it instead of overflowing. */
+#appKeyboard.kbd-dock-bottom {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--dock-h);   /* exactly fills the bottom dock band (= #dockArea) */
+    border-top: 1px solid #c4ccd2;
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.18);
+    /* ½·gap surround (matches #expressPanel); keep the safe-area inset at the bottom. */
+    padding: calc(var(--grid-gap) / 2) calc(var(--grid-gap) / 2) calc(var(--grid-gap) / 2 + env(safe-area-inset-bottom, 0px));
+}
+/* Key rows stretch to fill the fixed-height bottom dock (like the side dock). */
+#appKeyboard.kbd-dock-bottom .kbd-row { flex: 1 1 0; }
+#appKeyboard.kbd-dock-bottom .kbd-key { min-height: 0; }
+
+/* Side dock — About Me / Settings (compete for horizontal space, so the
+   keyboard takes a full-height column and the rows STRETCH to fill that
+   height — no centred dead band). The column width is a share of the window. */
+#appKeyboard.kbd-dock-side {
+    top: 0;
+    bottom: 0;
+    width: var(--dock-w);
+    padding: calc(var(--grid-gap) / 2);   /* ½·gap surround (matches #expressPanel) */
+}
+
+#appKeyboard.kbd-dock-side.kbd-side-right {
+    right: 0;
+    border-left: 1px solid #c4ccd2;
+    box-shadow: -4px 0 16px rgba(0, 0, 0, 0.18);
+}
+
+#appKeyboard.kbd-dock-side.kbd-side-left {
+    left: 0;
+    border-right: 1px solid #c4ccd2;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.18);
+}
+
+/* In the side dock each row stretches to share the full column height. */
+#appKeyboard.kbd-dock-side .kbd-row {
+    flex: 1 1 0;
+}
+
+#appKeyboard.kbd-dock-side .kbd-key {
+    min-height: 0;   /* let the row height (flex) drive key height */
+}
+
+#appKeyboard.hidden {
+    display: none;
+}
+
+/* Cut/Copy/Paste toolbar above the keys REMOVED (Ken, June 29 2026): the key
+   rows now start at the top of the dock, matching the Express Panel which lost
+   its #epControls row — one keyguard still overlays both. (Re-adding a control
+   row would need a matching reserved row on the Express Panel for alignment.) */
+
+/* Word-prediction buttons (local prediction — prediction.js). Content buttons
+   (predicted word as text), exempt from the icon-only rule.
+   DISPLAY DROPPED for now (Ken, June 28 2026): the prediction INFRASTRUCTURE is
+   kept (prediction.js, updatePredictions, and learning on space/enter all keep
+   running), but the buttons are NOT shown while several button-size questions —
+   which will shape how prediction is brought back into the UI — are worked out.
+   The base overlay styling below is retained so re-enabling is cheap: remove the
+   `display: none` and restore the active/inactive toggle:
+       .kbd-preds.kbd-preds-active { pointer-events: auto; }
+       .kbd-preds:not(.kbd-preds-active) { display: none; }
+   NOTE: the old Cut/Copy/Paste toolbar that anchored this overlay is gone, so it
+   now sits directly on the keyboard root (#appKeyboard, position:fixed). When
+   prediction display is re-introduced it will need its own placement/anchor. */
+.kbd-preds {
+    position: absolute;
+    inset: 0;
+    gap: 0.4rem;
+    min-width: 0;
+    background: #e9edf0;
+    pointer-events: none;
+    display: none;                 /* prediction display dropped for now (Ken) */
+}
+.kbd-pred-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: var(--btn-min-dim);
+    border: 1px solid #ffe082;
+    border-radius: 8px;
+    background: #fff8e1;
+    color: var(--ink);
+    font-size: 1rem;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.kbd-pred-btn[hidden] { display: none; }
+.kbd-pred-btn:active { background: #ffe082; transform: translateY(1px); }
+
+/* Inline word-prediction ghost overlay (keyboard.js renderGhost). A
+   non-interactive mirror of the active field: the typed text is transparent (it
+   only reserves the right width) and the predicted SUFFIX is drawn bold + tinted
+   so it reads as a provisional inline completion. Positioned exactly over the
+   field, so the real field text shows through underneath and the two read as one
+   line. The JS copies the field's font/padding/border so the metrics match. */
+#predGhost {
+    position: fixed;
+    z-index: 150;
+    pointer-events: none;
+    margin: 0;
+    background: transparent;
+    color: transparent;          /* mirrored typed text is invisible — spacing only */
+    border-style: solid;
+    border-color: transparent;   /* widths copied from the field for exact alignment */
+    overflow: hidden;
+}
+#predGhost .pred-ghost-inner { will-change: transform; }
+#predGhost .pred-ghost-word {
+    color: var(--pred-ghost-color);
+    background: var(--pred-ghost-bg);
+    font-weight: 700;            /* bold (Ken — italic is harder to read) */
+    border-radius: 3px;
+}
+
+.kbd-row {
+    display: flex;
+    gap: var(--grid-gap);    /* between keys — keyguard bar width (settable) */
+    justify-content: center;
+}
+
+.kbd-key {
+    flex: 1 1 0;
+    min-width: 0;
+    /* Window-aware height: scales with the viewport, clamped to sane bounds. */
+    min-height: clamp(2.2rem, 7.5vh, 4rem);
+    border: 1px solid #b8c0c6;
+    border-radius: 8px;
+    background: #fff;
+    color: #1a1a1a;
+    font-size: 1.35rem;
+    font-family: inherit;
+    cursor: pointer;
+    box-shadow: 0 1px 0 #b8c0c6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.kbd-key:active {
+    background: #d7dde1;
+    transform: translateY(1px);
+    box-shadow: none;
+}
+
+/* Controls (shift / backspace / enter / 123-ABC) — grey; sizing comes from each
+   key's inline flex (its span), so no flex override here. */
+.kbd-shift,
+.kbd-backspace,
+.kbd-enter,
+.kbd-page {
+    background: #d4dade;
+    font-size: 1.2rem;
+}
+
+.kbd-space {
+    background: #eef3f6;
+}
+
+/* Inert filler (grid gaps) and future word-prediction slots. */
+.kbd-blank {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+    cursor: default;
+}
+
+.kbd-pred {
+    background: #fff8e1;
+    border-color: #ffe082;
+    cursor: default;
+}
+
+/* One-shot shift (next letter only) — lighter than the solid caps-lock state. */
+#appKeyboard.kbd-shift-on .kbd-shift {
+    background: #5a7891;
+    color: #fff;
+    border-color: #5a7891;
+}
+
+/* Caps lock (engaged by a double tap) — solid dark, clearly "stuck on". */
+#appKeyboard.kbd-caps .kbd-shift {
+    background: #2c3e50;
+    color: #fff;
+    border-color: #2c3e50;
+}
+

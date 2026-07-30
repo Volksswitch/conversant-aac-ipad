@@ -1,0 +1,6 @@
+{
+  "model": "claude-sonnet-4-6",
+  "inputCostPerMillionTokens": 3,
+  "outputCostPerMillionTokens": 15,
+  "lastVerified": "2025-06-11"
+}
