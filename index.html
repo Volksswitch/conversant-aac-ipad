@@ -48,28 +48,16 @@
                         <p class="setting-hint" id="startupErrorDetail"></p>
                         <p class="setting-hint">Settings → About → Reload the app is worth trying first. If it keeps happening, this text is the bug report.</p>
                     </div>
-                    <!-- The three optional pre-start screens, in the order the
-                         sequence shows them: step 2 upgrade, step 3 listening,
-                         step 4 API key. Only ever one at a time. -->
+                    <!-- The two optional pre-start screens, in the order the
+                         sequence shows them: the upgrade notice, then the API-key
+                         notice. Only ever one at a time. (A third, warning that
+                         listening may not work on this platform, was removed — it
+                         is a standing property of the device, identical every
+                         launch, so it belongs in the user documentation rather than
+                         in front of the user forever. Ken, July 30 2026.) -->
                     <div id="whatsNewPanel" hidden></div>
-                    <!-- Step 3 of the pre-start sequence: shown when partner capture
-                         measured unreliable here. On iPadOS recognition starts and
-                         then delivers nothing in a Home Screen app and in
-                         Chrome/Edge, so feature detection cannot be trusted and the
-                         user has to be told. It WARNS but does not block — the
-                         Listen button stays live so Safari can still surprise us
-                         (Ken, July 30 2026) — and the app works for speaking
-                         regardless, hence "Continue anyway", which advances to the
-                         API-key notice. -->
-                    <div id="listeningPrompt" hidden>
-                        <p class="apikey-prompt-title" id="listeningPromptReason"></p>
-                        <p class="setting-hint" id="listeningPromptRemedy"></p>
-                        <div class="apikey-prompt-actions">
-                            <button id="listeningPromptCloseBtn" type="button" class="apikey-continue">Clear message</button>
-                        </div>
-                    </div>
-                    <!-- Step 4 of the pre-start sequence: shown when no API key is
-                         set. Informational — the app works without one. -->
+                    <!-- Shown when no API key is set. Informational — the app works
+                         without one. -->
                     <div id="apiKeyPrompt" hidden>
                         <p class="apikey-prompt-title">To receive response suggestions from the AI, please provide an API key.</p>
                         <div class="apikey-prompt-actions">
@@ -78,13 +66,6 @@
                         </div>
                     </div>
                     <button id="startBtn">Start</button>
-                    <!-- Which build am I actually looking at? Settings → About has
-                         the version, but Settings is unreachable until Start has
-                         run, so a start-up problem leaves no way to tell a new
-                         delivery from a cached old one. The deploy workflow stamps
-                         the commit in; "dev" means it was served straight from the
-                         working copy. -->
-                    <p id="buildStamp"></p>
                 </div>
             </section>
 
@@ -174,6 +155,28 @@
                             <button id="testApiKeyBtn" type="button">Test</button>
                         </div>
                         <p id="apiKeyStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
+                    </div>
+                    <!-- Hearing the other person. Built-in is free and works on
+                         Windows; the paid backend exists for the platforms where the
+                         browser's own recognizer silently delivers nothing (an iPad
+                         Home Screen app, and Chrome/Edge on iPad). -->
+                    <div class="setting-group">
+                        <label>Hearing the other person</label>
+                        <div class="radio-group">
+                            <label><input type="radio" name="sttProvider" value="builtin"> This browser's own (free)</label>
+                            <label><input type="radio" name="sttProvider" value="deepgram"> Deepgram transcription (paid)</label>
+                        </div>
+                        <p class="setting-hint">Your browser can usually do this itself, at no cost. On an iPad it can't — listening does nothing in a Home Screen app, and in Chrome or Edge — so a transcription service is the way to have the app hear the other person there.</p>
+                        <div id="deepgramRow" hidden>
+                            <label for="deepgramKeyInput">Deepgram key</label>
+                            <div id="deepgramKeyRow">
+                                <input type="text" id="deepgramKeyInput" placeholder="Your Deepgram API key" autocomplete="off" spellcheck="false">
+                                <button id="pasteDeepgramKeyBtn" type="button" aria-label="Paste Deepgram key">Paste</button>
+                                <button id="testDeepgramKeyBtn" type="button">Test</button>
+                            </div>
+                            <p id="deepgramKeyStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
+                            <p class="setting-hint">Sign up at <a href="https://deepgram.com" target="_blank" rel="noopener">deepgram.com</a> — new accounts include $200 of free credit, which is several hundred hours, and no card is needed to start. Create a key in the console under Settings → API Keys. Costs about 46 cents an hour of speech; the app only sends audio while someone is actually talking, so quiet stretches are free.</p>
+                        </div>
                     </div>
                     <div class="setting-group">
                         <label>Data Folder</label>

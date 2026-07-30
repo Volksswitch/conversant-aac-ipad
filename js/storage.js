@@ -282,7 +282,10 @@ const SETTINGS_DIR = 'settings';
 // captured into a profile file (a profile can't "own" which profile is active) and
 // must be preserved across a load, so it lives in the excluded set alongside the
 // secrets/counters.
-const PROFILE_EXCLUDE = ['apiKey', 'usageInputTokens', 'usageOutputTokens', 'usageSince', 'lastSeenVersion', 'activeSettingsProfile'];
+// `deepgramKey` sits here with `apiKey` for the same reason (SEC-6): a key must
+// never be written to a data folder that may be cloud-synced, nor carried in a
+// backup file the user might send someone. Both are re-entered per device.
+const PROFILE_EXCLUDE = ['apiKey', 'deepgramKey', 'usageInputTokens', 'usageOutputTokens', 'usageSttSeconds', 'usageSince', 'lastSeenVersion', 'activeSettingsProfile'];
 
 // Which saved profile is currently in effect (machine-local; '' when none / custom
 // unsaved settings). Set when a profile is saved or loaded; cleared if that profile
@@ -474,6 +477,29 @@ export function loadApiKey() {
 export function saveApiKey(apiKey) {
     const settings = loadSettings();
     settings.apiKey = apiKey;
+    saveSettings(settings);
+}
+
+// Which speech-recognition backend to use: 'builtin' (the browser's own, free) or
+// 'deepgram' (paid, the user's own key). Default builtin — nobody should have to
+// sign up for anything to try the app, and on Windows the built-in one works.
+export function loadSttProvider() {
+    return loadSettings().sttProvider || 'builtin';
+}
+
+export function saveSttProvider(provider) {
+    const settings = loadSettings();
+    settings.sttProvider = provider === 'deepgram' ? 'deepgram' : 'builtin';
+    saveSettings(settings);
+}
+
+export function loadDeepgramKey() {
+    return loadSettings().deepgramKey || null;
+}
+
+export function saveDeepgramKey(key) {
+    const settings = loadSettings();
+    settings.deepgramKey = key;
     saveSettings(settings);
 }
 
@@ -1102,6 +1128,25 @@ export function resetUsage() {
     settings.usageInputTokens = 0;
     settings.usageOutputTokens = 0;
     settings.usageSince = new Date().toISOString();
+    settings.usageSttSeconds = 0;
+    saveSettings(settings);
+}
+
+// Seconds of audio actually uploaded to a paid transcription service. Counted
+// because transcription is billed per second of audio and, unlike the AI calls,
+// runs while nobody is doing anything deliberate — so it is the cost most likely
+// to surprise someone. Kept in the same counter set as the tokens, and cleared by
+// the same reset. Excluded from profiles/backups only in the sense that the whole
+// usage set is (see PROFILE_EXCLUDE).
+export function loadSttSeconds() {
+    return loadSettings().usageSttSeconds ?? 0;
+}
+
+export function addSttSeconds(seconds) {
+    if (!(seconds > 0)) return;
+    const settings = loadSettings();
+    if (!settings.usageSince) settings.usageSince = new Date().toISOString();
+    settings.usageSttSeconds = (settings.usageSttSeconds ?? 0) + seconds;
     saveSettings(settings);
 }
 

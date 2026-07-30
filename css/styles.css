@@ -168,17 +168,6 @@ body {
     display: none;
 }
 
-/* Build stamp under the Start button — deliberately quiet, but always present:
-   it is the only way to identify a build before Start has run. */
-#buildStamp {
-    flex: 0 0 auto;
-    margin: 0;
-    font-size: 0.8rem;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    color: #7a8792;
-    letter-spacing: 0.02em;
-}
-
 #startBtn {
     flex: 0 0 auto;
     background: #2c3e50;
@@ -1512,12 +1501,31 @@ dialog select {
 
 /* API-key row: the field + a Paste button (replaces the keyboard's removed
    clipboard toolbar for pasting a long `sk-ant-…` key). */
-#apiKeyRow {
+#apiKeyRow,
+#deepgramKeyRow {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     margin-top: 0.25rem;
 }
+/* The transcription key row mirrors the API key row exactly — same shape, same
+   controls, so the second key does not look like a different kind of thing. */
+#deepgramKeyRow #deepgramKeyInput {
+    flex: 0 1 9rem;
+    width: auto;
+    min-width: 0;
+    -webkit-text-security: disc;   /* masked, like the API key */
+}
+#deepgramKeyRow button {
+    flex: 0 0 auto;
+    padding: 0.5rem 0.9rem;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: #f5f5f5;
+    cursor: pointer;
+}
+#deepgramRow { margin-top: 0.75rem; }
+#deepgramRow[hidden] { display: none; }
 #apiKeyRow #apiKeyInput {
     /* The key is masked to dots, so it needs no room to read — keep it short so
        the Paste button shows fully and the column isn't crowded (Ken). */
@@ -1575,12 +1583,9 @@ dialog select {
 }
 #apiKeyPrompt[hidden] { display: none; }
 
-/* The other two pre-start notices share the card, so the sequence looks like one
-   thing shown three ways rather than three unrelated screens. The listening notice
-   had no card of its own and rendered as bare text on the transcript background;
-   the startup-failure card is red, because unlike the other two it is not
+/* Shares the API-key notice's card so the pre-start screens look like one thing
+   shown two ways, but in red: unlike the other notice this one is not
    informational — something is actually broken. */
-#listeningPrompt,
 #startupError {
     flex: 0 0 auto;
     max-width: 34rem;
@@ -1607,7 +1612,6 @@ dialog select {
     max-height: 30vh;
     overflow-y: auto;
 }
-#listeningPrompt[hidden],
 #startupError[hidden] { display: none; }
 .apikey-prompt-title { margin: 0 0 0.9rem; font-weight: 700; color: #7a5300; line-height: 1.45; }
 .apikey-prompt-actions {

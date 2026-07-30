@@ -1,6 +1,10 @@
 import * as platform from './platform.js';
+import * as deepgram from './stt-deepgram.js';
 
 let recognition = null;
+// A non-browser capture backend (Deepgram), or null when using the built-in
+// recognizer. Only one is ever active.
+let externalSource = null;
 // Per-platform recognition tuning (see platform.js). Defaults are the desktop
 // values; init() replaces them with the platform's.
 let speechCfg = { continuous: true, restartDelayMs: 0, guardVisibility: false };
@@ -183,11 +187,82 @@ function isEcho(transcript) {
     });
 }
 
-export function init({ onResult, onSilence, onStatus, onPartnerSpeech }) {
+/*
+ * THE SHARED CORE — every backend feeds transcript text through these two, and
+ * everything the conversation loop depends on lives here rather than in a backend:
+ * accumulation into segments, the TTS-echo filter, the silence checkpoint that
+ * fires generation, and the partner-resumed signal that cancels a placeholder.
+ *
+ * That placement is deliberate. The user's silence period is a setting, "Ask them
+ * to repeat" drops the last segment, and interrupting a partner captures whatever
+ * has been heard so far — none of which may behave differently because the audio
+ * arrived from Deepgram rather than from the browser. A backend supplies text and
+ * nothing else.
+ *
+ * `ingest` returns whether genuine (non-echo) partner content was heard.
+ */
+function ingest(transcript, isFinal) {
+    // Drop our own TTS echo (a placeholder/response/prompt) — it must not
+    // accumulate or renew the partner's turn. Only unique partner content gets through.
+    if (isEcho(transcript)) return false;
+    if (isFinal) {
+        segments.push(transcript);              // boundaries, so Pardon drops just the last one
+        accumulatedText = joinParts(segments);  // single spaces between segments
+        currentInterim = '';
+    } else {
+        currentInterim = transcript;
+    }
+    return true;
+}
+
+function afterIngest(heardPartner) {
+    // Only renew the partner's turn (reset the silence checkpoint) when genuine
+    // partner content was heard AND the app isn't currently speaking. Pure echo
+    // leaves the checkpoint alone (content filter), and any audio captured while we
+    // speak — including mis-transcribed echo the filter missed — must not renew the
+    // turn either (trigger-level loop guard).
+    if (heardPartner && !speechActive()) {
+        // Genuine partner speech: restart the silence checkpoint AND tell the app
+        // the partner is talking again. If the partner resumes after a pause that
+        // already fired a checkpoint, the app cancels the pending placeholder so it
+        // doesn't speak over the partner (Ken, July 2026).
+        resetSilenceTimer();
+        if (onPartnerActivity) onPartnerActivity();
+    }
+    if (onTranscript) onTranscript(joinParts([accumulatedText, currentInterim]));
+}
+
+/*
+ * `opts.source` selects the backend:
+ *   omitted / 'builtin' — the browser's own recognizer (free; the Windows path,
+ *                         and the only one that costs nothing).
+ *   'deepgram'          — a paid streaming service via the user's own key, for the
+ *                         platforms where the built-in one silently delivers
+ *                         nothing. `opts.getDeepgramKey` reads the key at start
+ *                         time so pasting one into Settings takes effect without a
+ *                         reload.
+ *
+ * Falls back to the built-in recognizer if a paid backend is asked for but cannot
+ * be constructed — an app that can hear is better than one that refuses to try.
+ */
+export function init({ onResult, onSilence, onStatus, onPartnerSpeech, source, getDeepgramKey, onBilled }) {
     onTranscript = onResult;
     onSilencePeriod = onSilence;
     onStatusChange = onStatus;
     onPartnerActivity = onPartnerSpeech;
+
+    if (source === 'deepgram') {
+        externalSource = deepgram.createSource({
+            getKey: getDeepgramKey || (() => ''),
+            onText: (text, isFinal) => { afterIngest(ingest(text, isFinal)); },
+            onStatus: (status, detail) => {
+                if (status === 'error') handleSourceError(detail);
+                else if (onStatusChange) onStatusChange(status);
+            },
+            onBilled,
+        });
+        return;
+    }
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     recognition = new SpeechRecognition();
@@ -201,40 +276,11 @@ export function init({ onResult, onSilence, onStatus, onPartnerSpeech }) {
     recognition.lang = 'en-US';
 
     recognition.onresult = (event) => {
-        let latestInterim = '';
         let heardPartner = false;   // any non-echo content this event?
         for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript;
-            // Drop our own TTS echo (a placeholder/response/prompt) — it must
-            // not accumulate or renew the partner's turn. Only unique partner
-            // content gets through.
-            if (isEcho(transcript)) continue;
-            if (event.results[i].isFinal) {
-                segments.push(transcript);   // track boundaries so Pardon can drop just the last one
-                accumulatedText = joinParts(segments);   // single spaces between segments
-                latestInterim = '';
-                heardPartner = true;
-            } else {
-                latestInterim = transcript;
-                heardPartner = true;
-            }
+            if (ingest(event.results[i][0].transcript, event.results[i].isFinal)) heardPartner = true;
         }
-        currentInterim = latestInterim;
-        // Only renew the partner's turn (reset the silence checkpoint) when
-        // genuine partner content was heard AND the app isn't currently speaking.
-        // Pure echo leaves the checkpoint alone (content filter), and any audio
-        // captured while we speak — including mis-transcribed echo the filter
-        // missed — must not renew the turn either (trigger-level loop guard).
-        if (heardPartner && !speechActive()) {
-            // Genuine partner speech: restart the silence checkpoint AND tell the
-            // app the partner is talking again. If the partner resumes after a
-            // pause that already fired a checkpoint, the app cancels the pending
-            // placeholder so it doesn't speak over the partner (Ken, July 2026).
-            resetSilenceTimer();
-            if (onPartnerActivity) onPartnerActivity();
-        }
-
-        if (onTranscript) onTranscript(joinParts([accumulatedText, currentInterim]));
+        afterIngest(heardPartner);
     };
 
     recognition.onend = () => {
@@ -303,11 +349,9 @@ export function init({ onResult, onSilence, onStatus, onPartnerSpeech }) {
     recognition.onerror = (event) => {
         if (event.error === 'no-speech' || event.error === 'aborted') return;
         // A surfaced error (network / not-allowed / service-not-allowed /
-        // audio-capture) is fatal for this session — clear the listening intent so
-        // onend doesn't immediately restart into the same error (a tight loop when
-        // offline, since recognition is cloud-based). The user re-taps to try again.
-        listeningIntent = false;
-        if (onStatusChange) onStatusChange('error', event.error);
+        // audio-capture) is fatal for this session — see handleSourceError. Without
+        // clearing the intent, onend would restart straight into the same error.
+        handleSourceError(event.error);
     };
 }
 
@@ -337,22 +381,38 @@ function clearSilenceTimer() {
     }
 }
 
+// A surfaced error is fatal for this listening session whichever backend produced
+// it: clear the intent so nothing restarts into the same failure (a tight loop when
+// offline, since both backends are network services). The user re-taps to try again.
+function handleSourceError(detail) {
+    listeningIntent = false;
+    if (onStatusChange) onStatusChange('error', detail);
+}
+
 export function startListening() {
-    if (!recognition) return;
+    if (!recognition && !externalSource) return;
     accumulatedText = '';
     segments = [];
     currentInterim = '';
     listeningIntent = true;
     suspendedForHidden = false;   // a fresh start clears any backgrounded state
+    if (externalSource) {
+        // Async: the paid backend needs microphone permission and a socket. Its own
+        // status callback reports 'listening' once it is actually up, so the button
+        // does not claim to be listening before anything can be heard.
+        externalSource.start();
+        return;
+    }
     try { recognition.start(); } catch { /* already started */ }
     if (onStatusChange) onStatusChange('listening');
 }
 
 export function stopListening() {
-    if (!recognition) return;
+    if (!recognition && !externalSource) return;
     listeningIntent = false;
     suspendedForHidden = false;   // a deliberate stop outranks a backgrounded suspend
     clearSilenceTimer();
+    if (externalSource) return externalSource.stop();
     recognition.stop();
 }
 

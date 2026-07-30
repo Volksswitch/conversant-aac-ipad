@@ -22,35 +22,13 @@ import * as chime from './chime.js';
 import * as practiceScenarios from './practice-scenarios.js';
 import * as dataTransfer from './data-transfer.js';
 import * as platform from './platform.js';
+import * as sttDeepgram from './stt-deepgram.js';
 import { confirmDanger } from './confirm-dialog.js';
 
 // The platform verdict on partner capture (see platform.js), or null when capture
 // is expected to work. Non-null drives the pre-start warning; it does NOT by
 // itself disable anything — see applyListenAvailability.
 let listeningUnavailable = null;
-
-// Tell the user, visibly, that listening may not work here — and why, and what to
-// do about it. This CANNOT go through ui.setStatus: that element has been
-// visually hidden since v0.5.2, so a message sent there is never seen. That is
-// exactly how the old "Use Chrome or Edge" text managed to be both wrong on iPad
-// and invisible everywhere.
-//
-// Step 3 of the pre-start SEQUENCE (Ken, July 30 2026), not a notice raised at
-// load. Shown on its own, after the upgrade screen and before the API-key notice,
-// so the pre-start screens never stack on top of each other — the rule set in
-// v0.5.96. `onContinue` advances the chain.
-function showListeningUnavailableNotice(support, onContinue) {
-    const box = document.getElementById('listeningPrompt');
-    if (!box) return onContinue();
-    document.getElementById('listeningPromptReason').textContent = support.reason;
-    document.getElementById('listeningPromptRemedy').textContent =
-        support.remedy + ' Everything else works: you can still speak with the Express Panel and “In my own words”.';
-    document.getElementById('startBtn').hidden = true;      // the panel carries its own proceed control
-    document.getElementById('whatsNewPanel').hidden = true;
-    box.hidden = false;
-    document.getElementById('listeningPromptCloseBtn').onclick = () => { box.hidden = true; onContinue(); };
-    ui.setStatus(support.reason + ' ' + support.remedy);   // aria-live, for screen readers
-}
 
 // Disable the Listen control ONLY where there is no recognizer to call at all —
 // never merely because this platform measured unreliable (Ken, July 30 2026:
@@ -93,7 +71,7 @@ const APP_VERSION = '0.5.99';
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = '9e73383';
+const BUILD_STAMP = '27de262';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
@@ -126,6 +104,10 @@ let activeSteer = { focusChoice: null, steer: null };
 // response options it's still producing (that's why this is separate from
 // generationToken, which a response selection uses to cancel generation outright).
 let placeholderEpoch = 0;
+// Cumulative audio (seconds) the paid transcription backend has uploaded since it
+// was last started — the source reports a running total, so this holds the last
+// value seen in order to store only the increment.
+let sttBilledThisSession = 0;
 // Abort placeholders now AND stop an in-flight generation from restarting one.
 function abortPlaceholders() {
     placeholders.stop();
@@ -275,8 +257,14 @@ function initApp() {
     // than being told plainly. The app remains fully usable without capture (the
     // AI-optional property): the Express Panel and "In my own words" still speak,
     // and turns are still recorded — so this disables listening, not the app.
+    // A paid backend bypasses the platform verdict entirely: it does its own
+    // capture and never touches the browser's recognizer, so "Safari delivers
+    // nothing in a Home Screen app" simply does not apply to it. That is the whole
+    // point of paying — capture where the platform has none.
+    const sttProvider = storage.loadSttProvider();
+    const usingPaidStt = sttProvider === 'deepgram' && !!(storage.loadDeepgramKey() || '').trim();
     const speechSupport = platform.speechRecognitionSupport();
-    listeningUnavailable = speechSupport.usable ? null : speechSupport;
+    listeningUnavailable = (usingPaidStt || speechSupport.usable) ? null : speechSupport;
 
     // Recording indicator: whether the start-of-listening chime is enabled
     // (partner-awareness cue — see chime.js). Applied here so it's active before
@@ -300,13 +288,18 @@ function initApp() {
     // the keyboard, Settings — is what the notice promises still works, and an
     // early return here left an iPad Home Screen app with no working controls at
     // all, Start included (Ken, July 30 2026).
-    if (speechSupport.apiPresent) {
+    if (speechSupport.apiPresent || usingPaidStt) {
         stt.setSilenceThreshold(storage.loadSilenceThreshold());
         stt.init({
             onResult: handleSpeechResult,
             onSilence: handleSilencePeriod,
             onStatus: handleSttStatus,
-            onPartnerSpeech: handlePartnerResumed
+            onPartnerSpeech: handlePartnerResumed,
+            source: usingPaidStt ? 'deepgram' : 'builtin',
+            // Read at start time, so a key pasted into Settings works on the next
+            // Listen rather than needing a reload.
+            getDeepgramKey: () => storage.loadDeepgramKey() || '',
+            onBilled: handleSttBilled,
         });
     }
 
@@ -398,8 +391,14 @@ function initApp() {
         }
         keyboard.hideKeyboard();
     });
+    // Release number with the build appended (Ken, July 30 2026) — "0.5.99 ·
+    // 9e73383". A bug report needs the exact code, not just the version: several
+    // deploys share one version during a dev cycle. This is the only place it is
+    // shown; the temporary copy under the Start button was removed once the iPad
+    // Home Screen app was confirmed to get that far. The startup-failure card
+    // repeats it, since that is shown when Settings cannot be reached.
     const versionEl = document.getElementById('aboutVersion');
-    if (versionEl) versionEl.textContent = APP_VERSION;
+    if (versionEl) versionEl.textContent = `${APP_VERSION} · ${BUILD_ID}`;
 
     tts.onVoicesReady(() => {
         const savedURI = storage.loadVoiceURI();
@@ -450,6 +449,15 @@ function initApp() {
 // API; (3) a visible "no API key yet" prompt on the pre-start screen (the hidden
 // status bar can't show one). Step 3 of the pre-start sequence (afterWhatsNew)
 // drives (3); the two functions below drive (1)/(2).
+
+function showDeepgramStatus(kind, msg) {
+    const el = document.getElementById('deepgramKeyStatus');
+    if (!el) return;
+    if (!msg) { el.hidden = true; el.textContent = ''; el.className = 'api-key-status'; return; }
+    el.hidden = false;
+    el.textContent = msg;
+    el.className = 'api-key-status ' + (kind === 'ok' ? 'ok' : kind === 'checking' ? 'checking' : 'warn');
+}
 
 function showApiKeyStatus(kind, msg) {
     const el = document.getElementById('apiKeyStatus');
@@ -516,6 +524,17 @@ async function handleSilencePeriod(text) {
     // elapsed) or placeholders.stop() (not placeholder-worthy).
     placeholders.arm();
     await generateOptions(text);
+}
+
+// Audio uploaded to the paid transcription service, in seconds. Reported per
+// speech burst (the gate closing), so the running total reflects what was actually
+// sent rather than how long the microphone was open — which is the difference the
+// gating exists to create, and the number the user is billed on.
+function handleSttBilled(seconds) {
+    // The source reports its cumulative total for the session; store the delta.
+    const delta = seconds - sttBilledThisSession;
+    sttBilledThisSession = seconds;
+    if (delta > 0) storage.addSttSeconds(delta);
 }
 
 function handleSttStatus(status, detail) {
@@ -624,13 +643,20 @@ async function handleStart() {
     }
 }
 
-// Step 3 — the listening notice, shown only where partner capture measured
-// unreliable or absent. Informational: the Listen button stays live anyway (see
-// applyListenAvailability), so this is a heads-up before the user tries, not a
-// refusal. "Continue anyway" advances to step 4.
+// Step 3 was a "listening may not work here" notice. REMOVED (Ken, July 30 2026)
+// once the iPad Home Screen app was confirmed working apart from capture: "I'm not
+// convinced that it is necessary to keep hitting a person in the face with this
+// warning each time they start the app, they will understand that quickly and
+// probably before they create the desktop app via user documentation."
+//
+// It is a property of the platform, not an event — it is identical on every launch
+// and there is nothing to act on, so a recurring modal step teaches nothing after
+// the first read and costs a tap forever. The user documentation carries it
+// instead. What survives in code: the verdict still reaches the screen-reader
+// status line, still disables the control where there is no recognizer at all, and
+// is still reported by platform.describe() in a bug report.
 function afterWhatsNew() {
-    if (listeningUnavailable) showListeningUnavailableNotice(listeningUnavailable, afterListeningNotice);
-    else afterListeningNotice();
+    afterListeningNotice();
 }
 
 // Step 4 — the API-key notice, shown only when no key is set (informational: the
@@ -654,7 +680,6 @@ function afterListeningNotice() {
 function finishStart() {
     document.getElementById('startBtn').hidden = false;   // restore for any later start screen
     document.getElementById('apiKeyPrompt').hidden = true;
-    document.getElementById('listeningPrompt').hidden = true;
     document.getElementById('startBlock').classList.add('hidden');
     document.querySelector('main').classList.remove('disabled');
 }
@@ -2866,6 +2891,60 @@ function openSettings() {
         else if (res.reason === 'empty') showApiKeyStatus('warn', 'Enter your key first, then tap Test.');
         else showApiKeyStatus('warn', "Couldn't reach the service — check your internet connection and try again.");
     };
+    // --- Transcription backend (Ken, July 30 2026) ---------------------------
+    // Changing the provider or the key needs a reload, because stt.init() builds
+    // the capture source once at startup. Say so plainly rather than leaving the
+    // user to wonder why the setting appears to do nothing until next time.
+    const deepgramKeyInput = document.getElementById('deepgramKeyInput');
+    const deepgramRow = document.getElementById('deepgramRow');
+    const reflectSttProvider = () => {
+        const provider = storage.loadSttProvider();
+        const radio = document.querySelector(`input[name="sttProvider"][value="${provider}"]`);
+        if (radio) radio.checked = true;
+        if (deepgramRow) deepgramRow.hidden = provider !== 'deepgram';
+    };
+    if (deepgramKeyInput) deepgramKeyInput.value = storage.loadDeepgramKey() || '';
+    reflectSttProvider();
+    document.querySelectorAll('input[name="sttProvider"]').forEach((radio) => {
+        radio.onchange = () => {
+            if (!radio.checked) return;
+            storage.saveSttProvider(radio.value);
+            reflectSttProvider();
+            showDeepgramStatus('ok', 'Saved. Reload the app (About → Reload the app) to start using it.');
+        };
+    });
+    if (deepgramKeyInput) {
+        deepgramKeyInput.oninput = () => storage.saveDeepgramKey(deepgramKeyInput.value.trim());
+    }
+    const pasteDeepgramBtn = document.getElementById('pasteDeepgramKeyBtn');
+    if (pasteDeepgramBtn) {
+        pasteDeepgramBtn.onclick = async () => {
+            try {
+                const text = (await navigator.clipboard.readText())?.trim();
+                if (!text) { showDeepgramStatus('warn', 'The clipboard is empty — copy your key first.'); return; }
+                deepgramKeyInput.value = text;
+                storage.saveDeepgramKey(text);
+                showDeepgramStatus(null, '');
+            } catch {
+                showDeepgramStatus('warn', 'Could not read the clipboard. Touch and hold the box above, then choose Paste.');
+            }
+        };
+    }
+    const testDeepgramBtn = document.getElementById('testDeepgramKeyBtn');
+    if (testDeepgramBtn) {
+        // Opens the streaming socket and closes it again: it authenticates the key
+        // without sending audio, so it bills nothing.
+        testDeepgramBtn.onclick = async () => {
+            const key = (deepgramKeyInput.value || '').trim();
+            if (!key) { showDeepgramStatus('warn', 'Enter your key first, then tap Test.'); return; }
+            testDeepgramBtn.disabled = true;
+            showDeepgramStatus('checking', 'Checking your key…');
+            const res = await sttDeepgram.testKey(key);
+            testDeepgramBtn.disabled = false;
+            showDeepgramStatus(res.ok ? 'ok' : 'warn', res.message);
+        };
+    }
+
     voiceSelect.onchange = () => {
         const voiceURI = voiceSelect.value || null;
         tts.setVoice(voiceURI);
@@ -3078,7 +3157,10 @@ function reportStartupFailure(where, err) {
         // red-wash, not in a card the user can no longer see anyway.
         const startBlock = document.getElementById('startBlock');
         if (!startBlock || startBlock.classList.contains('hidden')) return;
-        document.getElementById('startupErrorDetail').textContent = where + ' — ' + msg;
+        // Name the build here: this card is shown precisely when Settings — and so
+        // the version line in About — cannot be reached.
+        document.getElementById('startupErrorDetail').textContent =
+            `v${APP_VERSION} · ${BUILD_ID}\n${where} — ${msg}`;
         box.hidden = false;
     } catch { /* the DOM itself is gone; the console line above is all we have */ }
 }
@@ -3086,13 +3168,12 @@ function reportStartupFailure(where, err) {
 window.addEventListener('error', (e) => reportStartupFailure('script', e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => reportStartupFailure('promise', e.reason));
 
-// Stamp the build BEFORE initApp runs, so it is on screen even if initApp is what
-// fails — that is precisely the case where you need to know which build you have.
-try {
-    const stamp = document.getElementById('buildStamp');
-    if (stamp) stamp.textContent = `v${APP_VERSION} · ${BUILD_ID}`;
-} catch { /* nothing to stamp */ }
-
+// The build used to be stamped under the Start button as well, because a start-up
+// failure made Settings unreachable and there was no other way to tell which build
+// you had. Removed once the iPad Home Screen app was confirmed to get past Start
+// (Ken, July 30 2026) — Settings → About carries it now. The startup-failure card
+// below is what covers the case the stamp was insurance against, and it names the
+// build in its own detail line.
 try {
     initApp();
 } catch (err) {
