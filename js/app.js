@@ -71,7 +71,7 @@ const APP_VERSION = '0.5.99';
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = '27de262';
+const BUILD_STAMP = '42d64b7';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
@@ -386,8 +386,8 @@ function initApp() {
         // didn't fire `input`) and take the keyboard fully down.
         const apiKeyInput = document.getElementById('apiKeyInput');
         if (apiKeyInput) {
-            const key = apiKeyInput.value.trim();
-            if (key !== (storage.loadApiKey() || '')) { llm.setApiKey(key); storage.saveApiKey(key); }
+            const key = keyFieldValue(apiKeyInput);   // null = untouched (still redacted)
+            if (key !== null && key !== (storage.loadApiKey() || '')) { llm.setApiKey(key); storage.saveApiKey(key); }
         }
         keyboard.hideKeyboard();
     });
@@ -450,6 +450,75 @@ function initApp() {
 // status bar can't show one). Step 3 of the pre-start sequence (afterWhatsNew)
 // drives (3); the two functions below drive (1)/(2).
 
+/*
+ * Key fields: hidden at rest, readable while you are editing them.
+ *
+ * These were masked in CSS with -webkit-text-security, which is the property
+ * Safari uses to render a password field — so Safari's password manager classified
+ * them as credentials and offered to "Save Password" on every launch of the iPad
+ * app, asking for a user name that means nothing for an API key (Ken, July 30
+ * 2026). autocomplete="off" does not suppress that heuristic; removing the
+ * password-shaped signal does.
+ *
+ * So a stored key is shown redacted — enough of each end to recognise WHICH key it
+ * is, never enough to use — and the real value is put back only while the field has
+ * focus. That is also better than masking was: a masked field makes a truncated
+ * paste invisible, which is precisely the failure the Test button exists to catch.
+ */
+function redactKey(key) {
+    const k = (key || '').trim();
+    if (k.length <= 12) return k ? '•'.repeat(k.length) : '';
+    return `${k.slice(0, 7)}…${k.slice(-4)}`;
+}
+
+// What the user has actually typed, or null when the field is showing the redacted
+// placeholder (i.e. untouched). The persist-on-close paths must treat null as "no
+// change" — saving the placeholder would overwrite the real key with "sk-ant-…4f2a".
+function keyFieldValue(input) {
+    if (!input || input.dataset.redacted) return null;
+    return input.value.trim();
+}
+
+// Put a real value into a key field programmatically (a paste), leaving it in the
+// un-redacted state so it is saved and readable.
+function setKeyFieldValue(input, value) {
+    input.value = value;
+    delete input.dataset.redacted;
+    input.classList.remove('key-redacted');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// Show the redacted form (unless the user is typing in it right now).
+function showRedactedKey(input, key) {
+    if (!input || document.activeElement === input) return;
+    const k = (key || '').trim();
+    if (!k) { input.value = ''; input.classList.remove('key-redacted'); delete input.dataset.redacted; return; }
+    input.value = redactKey(k);            // set directly: no input event, so nothing re-saves
+    input.dataset.redacted = '1';
+    input.classList.add('key-redacted');
+}
+
+// Reveal the real key for editing, and re-redact when focus leaves. `load`/`save`
+// keep this generic over both key fields.
+function wireKeyField(input, { load, save, onChange }) {
+    if (!input) return;
+    input.addEventListener('focus', () => {
+        if (input.dataset.redacted) {
+            input.value = load() || '';
+            delete input.dataset.redacted;
+            input.classList.remove('key-redacted');
+        }
+    });
+    input.addEventListener('blur', () => showRedactedKey(input, load()));
+    input.addEventListener('input', () => {
+        // Never save the redacted placeholder back over the real key.
+        if (input.dataset.redacted) return;
+        save(input.value.trim());
+        if (onChange) onChange(input.value.trim());
+    });
+    showRedactedKey(input, load());
+}
+
 function showDeepgramStatus(kind, msg) {
     const el = document.getElementById('deepgramKeyStatus');
     if (!el) return;
@@ -471,7 +540,11 @@ function showApiKeyStatus(kind, msg) {
 // Format-check the current field value and reflect it under the field. Empty is not
 // "invalid" (that's the missing-key case), so it just clears the line.
 function reflectApiKeyFormat() {
-    const key = (document.getElementById('apiKeyInput')?.value || '').trim();
+    // Read through keyFieldValue: a redacted field holds "sk-ant-…4f2a", which
+    // would fail the length check and put a red "too short" warning under a
+    // perfectly good saved key.
+    const input = document.getElementById('apiKeyInput');
+    const key = keyFieldValue(input) ?? (storage.loadApiKey() || '');
     if (!key) { showApiKeyStatus(null, ''); return; }
     const v = llm.validateKeyFormat(key);
     if (v.ok) { showApiKeyStatus(null, ''); return; }
@@ -2603,7 +2676,7 @@ function openSettings() {
     const responsesPerCategoryInput = document.getElementById('responsesPerCategoryInput');
     const choiceChipMaxInput = document.getElementById('choiceChipMaxInput');
 
-    apiKeyInput.value = storage.loadApiKey() || '';
+    showRedactedKey(apiKeyInput, storage.loadApiKey());
     populateVoiceSelect();
     populatePartnerVoiceSelect();
     silenceThresholdInput.value = storage.loadSilenceThreshold();
@@ -2845,12 +2918,11 @@ function openSettings() {
     // No Save button (Ken, June 14 2026): every control applies AND persists
     // immediately, so Settings doubles as a live test bench (e.g. trying the
     // side-dock keyboard layouts). Close just dismisses the panel.
-    apiKeyInput.oninput = () => {
-        const key = apiKeyInput.value.trim();
-        llm.setApiKey(key);
-        storage.saveApiKey(key);
-        reflectApiKeyFormat();     // red warning under the field if it looks malformed
-    };
+    wireKeyField(apiKeyInput, {
+        load: () => storage.loadApiKey() || '',
+        save: (key) => { llm.setApiKey(key); storage.saveApiKey(key); },
+        onChange: () => reflectApiKeyFormat(),   // red warning if it looks malformed
+    });
     reflectApiKeyFormat();          // reflect the current saved value on open
     // Paste button beside the API-key field — replaces the keyboard's removed
     // clipboard toolbar as the way to paste a long `sk-ant-…` key.
@@ -2867,8 +2939,7 @@ function openSettings() {
                 showApiKeyStatus('warn', 'The clipboard is empty — copy your key first.');
                 return;
             }
-            apiKeyInput.value = text;
-            apiKeyInput.dispatchEvent(new Event('input', { bubbles: true }));
+            setKeyFieldValue(apiKeyInput, text);
             // The input handler runs the format check, which reports on its own if
             // what was pasted doesn't look like a key.
         } catch {
@@ -2879,7 +2950,7 @@ function openSettings() {
     // Test button — the only way to catch a subtly-wrong key (right format, wrong
     // characters). Verifies against the API (GET /v1/models, bills no tokens).
     document.getElementById('testApiKeyBtn').onclick = async () => {
-        const key = apiKeyInput.value.trim();
+        const key = keyFieldValue(apiKeyInput) ?? (storage.loadApiKey() || '');
         if (!key) { showApiKeyStatus('warn', 'Enter your key first, then tap Test.'); return; }
         const btn = document.getElementById('testApiKeyBtn');
         btn.disabled = true;
@@ -2903,7 +2974,10 @@ function openSettings() {
         if (radio) radio.checked = true;
         if (deepgramRow) deepgramRow.hidden = provider !== 'deepgram';
     };
-    if (deepgramKeyInput) deepgramKeyInput.value = storage.loadDeepgramKey() || '';
+    wireKeyField(deepgramKeyInput, {
+        load: () => storage.loadDeepgramKey() || '',
+        save: (key) => storage.saveDeepgramKey(key),
+    });
     reflectSttProvider();
     document.querySelectorAll('input[name="sttProvider"]').forEach((radio) => {
         radio.onchange = () => {
@@ -2913,17 +2987,13 @@ function openSettings() {
             showDeepgramStatus('ok', 'Saved. Reload the app (About → Reload the app) to start using it.');
         };
     });
-    if (deepgramKeyInput) {
-        deepgramKeyInput.oninput = () => storage.saveDeepgramKey(deepgramKeyInput.value.trim());
-    }
     const pasteDeepgramBtn = document.getElementById('pasteDeepgramKeyBtn');
     if (pasteDeepgramBtn) {
         pasteDeepgramBtn.onclick = async () => {
             try {
                 const text = (await navigator.clipboard.readText())?.trim();
                 if (!text) { showDeepgramStatus('warn', 'The clipboard is empty — copy your key first.'); return; }
-                deepgramKeyInput.value = text;
-                storage.saveDeepgramKey(text);
+                setKeyFieldValue(deepgramKeyInput, text);
                 showDeepgramStatus(null, '');
             } catch {
                 showDeepgramStatus('warn', 'Could not read the clipboard. Touch and hold the box above, then choose Paste.');
@@ -2935,7 +3005,7 @@ function openSettings() {
         // Opens the streaming socket and closes it again: it authenticates the key
         // without sending audio, so it bills nothing.
         testDeepgramBtn.onclick = async () => {
-            const key = (deepgramKeyInput.value || '').trim();
+            const key = keyFieldValue(deepgramKeyInput) ?? (storage.loadDeepgramKey() || '');
             if (!key) { showDeepgramStatus('warn', 'Enter your key first, then tap Test.'); return; }
             testDeepgramBtn.disabled = true;
             showDeepgramStatus('checking', 'Checking your key…');
@@ -3119,8 +3189,8 @@ function openSettings() {
         // (e.g. autofill, or an OS paste that doesn't dispatch `input`) can leave
         // the field populated yet unsaved — Ken's bug 1. Saving here guarantees
         // whatever is in the field when the user closes Settings is persisted.
-        const key = apiKeyInput.value.trim();
-        if (key !== (storage.loadApiKey() || '')) {
+        const key = keyFieldValue(apiKeyInput);   // null = untouched (still redacted)
+        if (key !== null && key !== (storage.loadApiKey() || '')) {
             llm.setApiKey(key);
             storage.saveApiKey(key);
         }
