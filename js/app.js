@@ -71,7 +71,7 @@ const APP_VERSION = '0.5.99';
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = 'd4eadf4';
+const BUILD_STAMP = '9d940e9';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
