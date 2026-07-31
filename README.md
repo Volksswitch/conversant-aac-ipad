@@ -1,12 +1,18 @@
 # Conversant AAC — iPad trial build
 
 **This repository is a deployment target, not source.** The files here are a copy
-of `app/` from the `ipad` branch of the main Conversant AAC repository, pushed here
-so the iPad trial can be served from a URL separate from the app that testers are
-currently evaluating.
+of `app/` from **`main`** in the Conversant AAC repository, pushed here so the iPad
+trial can be served from a URL separate from the app that testers are currently
+evaluating.
 
-Do not edit anything here. Changes belong on the `ipad` branch of the source
-repository and are copied across when a new build is published.
+There is no separate iPad branch. The trial and the production app are built from
+the same commit on `main`: iPad-specific behavior is selected at runtime by
+capability detection, never by a build flag, so the two deployments differ only in
+their URL and — because of that URL — their storage namespace.
+
+Do not edit anything here except this README. Changes belong in `app/` in the
+source repository and are copied across by `scripts/publish-ipad-trial.mjs`, which
+refuses to publish anything that is not already what production is serving.
 
 ## Try it
 
@@ -29,9 +35,16 @@ in or out.
 
 ## Known, expected rough edges
 
-This is a work-in-progress trial. In particular the screen layout has not yet been
-recalibrated for the iPad's shorter usable height, so expect a cramped layout and
-possibly content sitting under the browser toolbar.
+This is a work-in-progress trial. The screen layout has not yet been recalibrated
+for the iPad's shorter usable height, so expect a cramped layout — this iPad sits
+right at the lower bound of the size range the layout was tuned for, and the bounds
+have not yet been re-derived. (Content sitting *under* the browser toolbar was a
+separate problem and is fixed.)
+
+Pinch-to-zoom and double-tap-to-zoom are switched off deliberately, here and on
+Windows: a keyguard's holes are cut in plastic and cannot zoom with the screen. Use
+**Settings → Text Size**, and **Speech & Input → Button size**, to make things
+bigger.
 
 Storage in a Safari tab is *evictable* — the browser may clear it after about a
 week without use. Export a backup before relying on anything you enter.
