@@ -96,8 +96,15 @@ export function summarize(pkg) {
         const value = pkg && pkg.data ? pkg.data[entry.file] : undefined;
         if (value === undefined) continue;
         let detail = '';
-        if (entry.file === 'worldview.json' && value && value.answers) {
-            detail = ` (${Object.keys(value.answers).length} answered)`;
+        // worldview.json keys its answers under `fields`, not `answers` — reading
+        // the wrong key meant this line silently showed no count at all, on the one
+        // screen where the user decides whether a backup is worth restoring from.
+        // Only `answered` fields count: a declined one is a recorded refusal, not
+        // an answer, and calling it one would overstate what the backup holds.
+        if (entry.file === 'worldview.json' && value && value.fields) {
+            const answered = Object.values(value.fields)
+                .filter((f) => f && f.state === 'answered').length;
+            detail = ` (${answered} answered)`;
         } else if (entry.file === 'relationships.json' && value && Array.isArray(value.people)) {
             detail = ` (${value.people.length})`;
         } else if (Array.isArray(value)) {
@@ -147,6 +154,17 @@ export async function downloadPackage(appVersion) {
     const pkg = await buildPackage(appVersion);
     downloadText(suggestedFilename(), JSON.stringify(pkg, null, 2));
     return pkg;
+}
+
+// Write the package into <data folder>/backups/ instead of downloading it (Ken,
+// July 31 2026). Used where the user picked a real folder: the backup then sits
+// beside the data it protects, in the folder they already sync and copy, rather
+// than in the browser's Downloads. Returns the path written so the caller can say
+// where it went. The download path above remains the ONLY route on a tablet.
+export async function savePackageToFolder(appVersion) {
+    const pkg = await buildPackage(appVersion);
+    const path = await storage.saveBackup(suggestedFilename(), JSON.stringify(pkg, null, 2));
+    return { pkg, path };
 }
 
 // Validate and parse. Throws a user-facing message — this is the one place a user

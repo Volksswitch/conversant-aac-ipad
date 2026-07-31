@@ -435,6 +435,108 @@ export function applyPortableSettings(incoming) {
     saveSettings(merged);
 }
 
+// --- Backups inside the data folder (Ken, July 31 2026) ---
+//
+// WHY: an export used to leave by the browser's download path only, so on Windows
+// a backup of the data folder landed in Downloads — beside everything else the
+// browser has ever fetched, and nowhere near the data it backs up. Where the user
+// picked a real folder, the backup belongs IN it: that is the place they already
+// know, already sync, and already copy between machines.
+//
+// This does NOT replace the download path. On a tablet the data folder is OPFS and
+// invisible, so writing a backup there would be writing it into the very storage
+// the backup exists to survive — the share sheet stays the only way out. Hence the
+// branch is on hasVisibleDataFolder(), not on platform.
+//
+// Being in the same folder means this protects against in-app mistakes (a Restart,
+// a reset, a bad import), not against losing the folder. Copying it somewhere else
+// is still the user's job — but now it is a file they can see in order to copy.
+const BACKUP_DIR = 'backups';
+
+// True only for a real folder the user picked and can open. DEVICE (OPFS) is a
+// data folder for every other purpose but deliberately not for this one.
+export function hasVisibleDataFolder() {
+    return backend === BACKEND.FOLDER;
+}
+
+async function getBackupsDir(create) {
+    if (!dirHandle) return null;
+    try {
+        return await dirHandle.getDirectoryHandle(BACKUP_DIR, { create: !!create });
+    } catch {
+        return null;
+    }
+}
+
+// Never silently overwrite an existing backup: the suggested filename is only
+// minute-resolution, so two exports a few seconds apart would collide, and the one
+// thing a backup must never do is destroy an earlier backup.
+async function freeName(dir, filename) {
+    const dot = filename.lastIndexOf('.');
+    const stem = dot > 0 ? filename.slice(0, dot) : filename;
+    const ext = dot > 0 ? filename.slice(dot) : '';
+    for (let n = 1; n < 100; n++) {
+        const name = n === 1 ? filename : `${stem}-${n}${ext}`;
+        try {
+            await dir.getFileHandle(name);   // resolves => taken, try the next
+        } catch {
+            return name;                     // not found => free
+        }
+    }
+    return `${stem}-${Date.now()}${ext}`;
+}
+
+// Write a backup into <data folder>/backups/. Returns the folder-relative path
+// actually written, so the caller can tell the user where it went rather than
+// claiming a filename it might not have used.
+export async function saveBackup(filename, text) {
+    const dir = await getBackupsDir(true);
+    if (!dir) throw new Error('Choose a data folder first.');
+    const name = await freeName(dir, filename);
+    const fh = await dir.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(text);
+    await w.close();
+    return `${BACKUP_DIR}/${name}`;
+}
+
+// The backups present in the folder, newest first. [{ name, savedAt, sizeKB }].
+// Sorted by the file's own timestamp rather than its name so a file copied in from
+// another machine still sorts sensibly.
+export async function listBackups() {
+    const dir = await getBackupsDir(false);
+    if (!dir) return [];
+    const out = [];
+    try {
+        for await (const [entryName, handle] of dir.entries()) {
+            if (handle.kind !== 'file' || !entryName.toLowerCase().endsWith('.json')) continue;
+            try {
+                const file = await handle.getFile();
+                out.push({
+                    name: entryName,
+                    savedAt: file.lastModified || 0,
+                    sizeKB: Math.max(1, Math.round(file.size / 1024)),
+                });
+            } catch { /* skip an unreadable entry rather than failing the whole list */ }
+        }
+    } catch { /* no backups directory yet */ }
+    // Newest first, tie-broken by name so two backups written in the same
+    // millisecond still come out in a stable, repeatable order.
+    out.sort((a, b) => (b.savedAt - a.savedAt) || b.name.localeCompare(a.name));
+    return out;
+}
+
+export async function readBackup(name) {
+    const dir = await getBackupsDir(false);
+    if (!dir) return null;
+    try {
+        const fh = await dir.getFileHandle(name);
+        return await (await fh.getFile()).text();
+    } catch {
+        return null;
+    }
+}
+
 // Every saved conversation, as [{ id, data }]. Returns [] with no data folder.
 export async function listConversationLogs() {
     const dir = await getConversationsDir();

@@ -71,7 +71,7 @@ const APP_VERSION = '0.5.99';
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = 'b6b4c39';
+const BUILD_STAMP = 'd4eadf4';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
@@ -2451,7 +2451,7 @@ function populateVoiceSelect() {
     voices.forEach(voice => {
         const opt = document.createElement('option');
         opt.value = voice.voiceURI;
-        opt.textContent = `${voice.name} (${voice.lang})`;
+        opt.textContent = tts.voiceLabel(voice);
         if (voice.voiceURI === savedURI) opt.selected = true;
         select.appendChild(opt);
     });
@@ -2474,7 +2474,7 @@ function populatePartnerVoiceSelect() {
     voices.forEach(voice => {
         const opt = document.createElement('option');
         opt.value = voice.voiceURI;
-        opt.textContent = `${voice.name} (${voice.lang})`;
+        opt.textContent = tts.voiceLabel(voice);
         if (voice.voiceURI === saved) opt.selected = true;
         select.appendChild(opt);
     });
@@ -2627,18 +2627,113 @@ function setBackupStatus(msg) {
     if (el) el.textContent = msg || '';
 }
 
+// Restore from the text of a backup file, wherever it came from — the folder list
+// or the file picker. Both routes must confirm identically, because both replace
+// everything; keeping one implementation is what guarantees that.
+async function importPackageText(text, sourceLabel) {
+    let pkg;
+    try {
+        pkg = dataTransfer.parsePackage(text);
+    } catch (err) {
+        setBackupStatus(err.message);
+        return;
+    }
+    // Show what's in the file BEFORE replacing anything — the user is about to
+    // overwrite everything and a filename is not enough to judge by.
+    const when = pkg.exportedAt ? new Date(pkg.exportedAt).toLocaleString() : 'an unknown date';
+    if (!(await confirmDanger({
+        title: 'Replace everything with this backup?',
+        body: `${sourceLabel ? sourceLabel + '\n\n' : ''}This backup was made on ${when} and contains:\n\n• ` +
+              dataTransfer.summarize(pkg).join('\n• ') +
+              `\n\nImporting REPLACES what is on this device — your current About Me answers, people, Express Panel, starters and settings will be overwritten. Your API key is left alone. The app will reload afterwards.`,
+        confirmLabel: 'Replace my data',
+    }))) {
+        setBackupStatus('Import cancelled — nothing was changed.');
+        return;
+    }
+    setBackupStatus('Importing…');
+    try {
+        const restored = await dataTransfer.applyPackage(pkg);
+        if (restored.failed.length) {
+            storage.logError('import', 'partial restore, failed: ' + restored.failed.join(', '));
+        }
+        location.reload();      // re-read every store exactly as at startup
+    } catch (err) {
+        storage.logError('import', err.message || String(err));
+        setBackupStatus('Import failed: ' + (err.message || 'unknown error'));
+    }
+}
+
+// Populate the list of backups sitting in <data folder>/backups/. Hidden entirely
+// where the folder is the browser's private storage — there is no folder for the
+// user to have put a file into, so an empty picker there would only puzzle them.
+async function renderBackupList() {
+    const row = document.getElementById('folderBackupRow');
+    const select = document.getElementById('backupFileSelect');
+    const restoreBtn = document.getElementById('restoreBackupBtn');
+    if (!row || !select || !restoreBtn) return;
+
+    if (!storage.hasVisibleDataFolder()) {
+        row.hidden = true;
+        return;
+    }
+    row.hidden = false;
+    const backups = await storage.listBackups();
+    if (!backups.length) {
+        select.innerHTML = '<option value="">— No backups in your data folder yet —</option>';
+        select.disabled = true;
+        restoreBtn.disabled = true;
+        return;
+    }
+    select.disabled = false;
+    restoreBtn.disabled = false;
+    // Date first (how the user thinks about a backup), then the filename — two
+    // backups made in the same minute would otherwise read identically, and the
+    // filename is also what they see if they open the folder themselves. Size is
+    // there because a suspiciously small backup is worth noticing before restoring
+    // from it.
+    select.innerHTML = backups.map((b) => {
+        const when = b.savedAt ? new Date(b.savedAt).toLocaleString() : 'unknown date';
+        return `<option value="${b.name}">${when} — ${b.name} (${b.sizeKB} KB)</option>`;
+    }).join('');
+}
+
 function wireBackupControls() {
     const fileInput = document.getElementById('importDataFile');
 
     document.getElementById('exportDataBtn').onclick = async () => {
         setBackupStatus('Preparing your backup…');
         try {
-            const pkg = await dataTransfer.downloadPackage(APP_VERSION);
-            setBackupStatus('Exported: ' + dataTransfer.summarize(pkg).join(' · '));
+            // Where the user picked a real folder, the backup goes IN it — beside
+            // the data it protects. Otherwise (a tablet's private storage, or no
+            // folder at all) it leaves by the download/share path, which is then
+            // the only way to get a file out of the app.
+            if (storage.hasVisibleDataFolder()) {
+                const { pkg, path } = await dataTransfer.savePackageToFolder(APP_VERSION);
+                await renderBackupList();
+                setBackupStatus(`Saved to your data folder as ${path} — ` +
+                                dataTransfer.summarize(pkg).join(' · '));
+            } else {
+                const pkg = await dataTransfer.downloadPackage(APP_VERSION);
+                setBackupStatus('Exported: ' + dataTransfer.summarize(pkg).join(' · '));
+            }
         } catch (err) {
             storage.logError('export', err.message || String(err));
             setBackupStatus('Could not build the backup: ' + (err.message || 'unknown error'));
         }
+    };
+
+    document.getElementById('restoreBackupBtn').onclick = async () => {
+        const name = document.getElementById('backupFileSelect').value;
+        if (!name) return;
+        setBackupStatus('Reading…');
+        const text = await storage.readBackup(name);
+        if (text === null) {
+            setBackupStatus('Could not read that backup — it may have been moved or deleted.');
+            await renderBackupList();
+            return;
+        }
+        await importPackageText(text, `From your data folder: ${name}`);
     };
 
     // The picker needs a real user gesture, so the button just opens it; the work
@@ -2652,38 +2747,10 @@ function wireBackupControls() {
     fileInput.onchange = async () => {
         const file = fileInput.files && fileInput.files[0];
         if (!file) return;
-        let pkg;
-        try {
-            pkg = dataTransfer.parsePackage(await file.text());
-        } catch (err) {
-            setBackupStatus(err.message);
-            return;
-        }
-        // Show what's in the file BEFORE replacing anything — the user is about to
-        // overwrite everything and a filename is not enough to judge by.
-        const when = pkg.exportedAt ? new Date(pkg.exportedAt).toLocaleString() : 'an unknown date';
-        if (!(await confirmDanger({
-            title: 'Replace everything with this backup?',
-            body: `This backup was made on ${when} and contains:\n\n• ` +
-                  dataTransfer.summarize(pkg).join('\n• ') +
-                  `\n\nImporting REPLACES what is on this device — your current About Me answers, people, Express Panel, starters and settings will be overwritten. Your API key is left alone. The app will reload afterwards.`,
-            confirmLabel: 'Replace my data',
-        }))) {
-            setBackupStatus('Import cancelled — nothing was changed.');
-            return;
-        }
-        setBackupStatus('Importing…');
-        try {
-            const restored = await dataTransfer.applyPackage(pkg);
-            if (restored.failed.length) {
-                storage.logError('import', 'partial restore, failed: ' + restored.failed.join(', '));
-            }
-            location.reload();      // re-read every store exactly as at startup
-        } catch (err) {
-            storage.logError('import', err.message || String(err));
-            setBackupStatus('Import failed: ' + (err.message || 'unknown error'));
-        }
+        await importPackageText(await file.text(), `From the file ${file.name}`);
     };
+
+    renderBackupList();
 }
 
 async function renderSettingsProfiles() {

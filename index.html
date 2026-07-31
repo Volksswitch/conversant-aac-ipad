@@ -230,19 +230,30 @@
                         </div>
                         <p class="setting-hint" id="settingsProfilesStatus" role="status" aria-live="polite"></p>
                     </div>
-                    <!-- Backup / transfer. On Windows the data folder already makes
-                         your data visible and copyable; this adds a single-file
-                         package so a backup is one tap, and it is the ONLY way to
-                         move data on a tablet, where the data folder is private to
-                         the browser. Import replaces everything, so it is
-                         danger-confirmed. -->
+                    <!-- Backup / transfer. Where you picked a real data folder the
+                         backup is written INTO it (a "backups" subfolder), so it
+                         sits beside the data it protects instead of in Downloads.
+                         On a tablet the data folder is private to the browser, so
+                         the backup leaves by the share sheet instead — there, this
+                         is the ONLY way to back up or move data at all. Import
+                         replaces everything, so it is danger-confirmed. -->
                     <div class="setting-group" id="backupGroup">
                         <label>Backup &amp; transfer</label>
-                        <p class="setting-hint"><b>Export</b> saves everything — your About Me answers, people, Express Panel, starters, settings and saved conversations — into one file you can keep somewhere safe or move to another device. <b>Import</b> puts a backup file back, <b>replacing</b> what is on this device. Your API key is never included in a backup.</p>
+                        <p class="setting-hint"><b>Export</b> saves everything — your About Me answers, people, Express Panel, starters, settings and saved conversations — into one file. With a data folder chosen it is written to a <b>backups</b> folder inside it; otherwise it is saved through your browser so you can put it somewhere safe. <b>Restore</b> puts a backup back, <b>replacing</b> what is on this device. Your API key is never included in a backup.</p>
                         <div class="profiles-row">
                             <button id="exportDataBtn" type="button">Export my data</button>
-                            <button id="importDataBtn" type="button">Import from a backup</button>
+                            <button id="importDataBtn" type="button">Import from a file…</button>
                             <input id="importDataFile" type="file" accept="application/json,.json" hidden>
+                        </div>
+                        <!-- Backups found in the data folder. Hidden where there is
+                             no folder the user can put a file into. -->
+                        <div id="folderBackupRow" hidden>
+                            <select id="backupFileSelect" aria-label="Backups in your data folder">
+                                <option value="">— No backups in your data folder yet —</option>
+                            </select>
+                            <div class="profiles-row profiles-actions">
+                                <button id="restoreBackupBtn" type="button">Restore selected backup</button>
+                            </div>
                         </div>
                         <p class="setting-hint" id="backupStatus" role="status" aria-live="polite"></p>
                     </div>
