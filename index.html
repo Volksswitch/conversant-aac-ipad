@@ -167,9 +167,12 @@
                          Home Screen app, and Chrome/Edge on iPad). -->
                     <div class="setting-group">
                         <label>Hearing the other person</label>
-                        <div class="radio-group">
-                            <label><input type="radio" name="sttProvider" value="builtin"> This browser's own (free)</label>
-                            <label><input type="radio" name="sttProvider" value="deepgram"> Deepgram transcription (paid)</label>
+                        <!-- radio-row / radio-label are the standard pair used by every
+                             other radio group here; this one was added later and missed
+                             them, so it had no layout of its own. -->
+                        <div class="radio-row">
+                            <label class="radio-label"><input type="radio" name="sttProvider" value="builtin"> This browser's own (free)</label>
+                            <label class="radio-label"><input type="radio" name="sttProvider" value="deepgram"> Deepgram transcription (paid)</label>
                         </div>
                         <p class="setting-hint">Your browser can usually do this itself, at no cost. On an iPad it can't — listening does nothing in a Home Screen app, and in Chrome or Edge — so a transcription service is the way to have the app hear the other person there.</p>
                         <div id="deepgramRow" hidden>
@@ -203,16 +206,27 @@
                     <div class="setting-group" id="settingsProfilesGroup">
                         <label>Settings profiles</label>
                         <p class="setting-hint">Save <b>all</b> of your settings (voice, silence period, dock &amp; layout, button/gap sizes, tap mode, text sizes, placeholders) as a named profile in your data folder, then re-apply it in one tap — handy for a repeatable test baseline or moving your setup to another device. Your API key and usage counters are <b>not</b> included. Needs a data folder (above).</p>
-                        <div class="profiles-row">
-                            <select id="settingsProfileSelect" aria-label="Saved settings profiles">
-                                <option value="">— No saved profiles —</option>
-                            </select>
+                        <!-- Control above, its buttons on their own full-width row below —
+                             the same shape as the voice Test buttons. Sharing a row with
+                             the select squeezed each button to a sliver, which is a real
+                             problem for users with limited motor control, not a cosmetic
+                             one. -->
+                        <select id="settingsProfileSelect" aria-label="Saved settings profiles">
+                            <option value="">— No saved profiles —</option>
+                        </select>
+                        <div class="profiles-row profiles-actions">
                             <button id="loadSettingsProfileBtn" type="button">Load</button>
+                            <!-- Overwrite the SELECTED profile with the settings now in
+                                 effect. Without it, re-saving a profile you had tweaked
+                                 meant retyping its exact name in the box below and
+                                 answering an overwrite warning — easy to misspell into a
+                                 second, near-identical profile. -->
+                            <button id="updateSettingsProfileBtn" type="button">Update</button>
                             <button id="deleteSettingsProfileBtn" type="button">Delete</button>
                         </div>
-                        <div class="profiles-row">
-                            <input id="settingsProfileNameInput" type="text" placeholder="Profile name" aria-label="New profile name" maxlength="60">
-                            <button id="saveSettingsProfileBtn" type="button">Save current settings</button>
+                        <input id="settingsProfileNameInput" type="text" placeholder="Profile name" aria-label="New profile name" maxlength="60">
+                        <div class="profiles-row profiles-actions">
+                            <button id="saveSettingsProfileBtn" type="button">Save as a new profile</button>
                         </div>
                         <p class="setting-hint" id="settingsProfilesStatus" role="status" aria-live="polite"></p>
                     </div>

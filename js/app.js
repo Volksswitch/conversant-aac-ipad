@@ -71,7 +71,7 @@ const APP_VERSION = '0.5.99';
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = '1ffa38f';
+const BUILD_STAMP = 'b6b4c39';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
@@ -1212,9 +1212,29 @@ function resumeOrIdle() {
 // currently showing in the select rather than the last-saved one.
 function pickPartnerVoice(chosen = storage.loadPartnerVoice()) {
     if (chosen) return chosen;
-    const own = tts.getSelectedVoiceURI();
-    const other = tts.getVoices().find(v => v.voiceURI !== own);
-    return other ? other.voiceURI : undefined;
+    const voices = tts.getVoices();
+    if (!voices.length) return undefined;
+
+    // Resolve what the user's voice ACTUALLY is before excluding it. When Voice is
+    // left on "Browser default" the app holds no URI, and the earlier version
+    // excluded "no URI" — which excludes nothing, so it returned the first voice in
+    // the list. That is precisely the voice the browser default resolves to, so the
+    // partner came out sounding identical to the user (Ken, July 31 2026, on the
+    // iPad). `default` is the flag that marks it; the first voice is the fallback
+    // where nothing is flagged.
+    const ownURI = tts.getSelectedVoiceURI();
+    const own = voices.find(v => v.voiceURI === ownURI)
+        || voices.find(v => v.default)
+        || voices[0];
+
+    // Prefer a different voice IN THE SAME LANGUAGE. "Any other voice" is fine with
+    // the three or four a desktop offers, but an iPad carries dozens across many
+    // languages, where the first non-match can easily be another language — audibly
+    // distinct and completely unintelligible, which is not the point.
+    const different = v => v.voiceURI !== own.voiceURI;
+    const pick = voices.find(v => different(v) && v.lang === own.lang)
+        || voices.find(different);
+    return pick ? pick.voiceURI : undefined;
 }
 
 // Settings → Practice tab. Three states: practice already running (show which
@@ -2670,23 +2690,30 @@ async function renderSettingsProfiles() {
     const select = document.getElementById('settingsProfileSelect');
     const loadBtn = document.getElementById('loadSettingsProfileBtn');
     const delBtn = document.getElementById('deleteSettingsProfileBtn');
+    const updBtn = document.getElementById('updateSettingsProfileBtn');
     const status = document.getElementById('settingsProfilesStatus');
     if (!select) return;
+    // All three act on the SELECTED profile, so they are enabled and disabled
+    // together — there is never a state where one is meaningful and another is not.
+    const setActionsEnabled = (on) => {
+        loadBtn.disabled = delBtn.disabled = updBtn.disabled = !on;
+    };
     if (!storage.hasDataFolder()) {
         select.innerHTML = '<option value="">— Choose a data folder first —</option>';
-        select.disabled = loadBtn.disabled = delBtn.disabled = true;
+        select.disabled = true;
+        setActionsEnabled(false);
         return;
     }
     select.disabled = false;
     const names = await storage.listSettingsProfiles();
     if (!names.length) {
         select.innerHTML = '<option value="">— No saved profiles —</option>';
-        loadBtn.disabled = delBtn.disabled = true;
+        setActionsEnabled(false);
         setProfileStatus('');
         return;
     }
     select.innerHTML = names.map((n) => `<option value="${n}">${n}</option>`).join('');
-    loadBtn.disabled = delBtn.disabled = false;
+    setActionsEnabled(true);
     // Reflect the profile currently in effect (persisted across reloads) rather than
     // defaulting to the first name — so after a load/restart the picker shows what's
     // actually in use (Ken, July 12 2026).
@@ -2959,6 +2986,29 @@ function openSettings() {
             location.reload(); // re-apply every setting exactly as at startup
         } catch (err) {
             setProfileStatus(err.message || 'Could not load the profile.');
+        }
+    };
+    // Overwrite the SELECTED profile with the settings currently in effect. This is
+    // the counterpart to Load: tweak a setting, then put the change back where it
+    // came from. Confirmed because it destroys the profile's previous contents —
+    // the same bar Save-over-an-existing-name already meets.
+    document.getElementById('updateSettingsProfileBtn').onclick = async () => {
+        const name = profileSelect.value;
+        if (!name) return;
+        if (!(await confirmDanger({
+            title: 'Replace that profile?',
+            body: `Replace the “${name}” profile with your current settings? Whatever it holds now is lost.`,
+            confirmLabel: 'Replace',
+        }))) return;
+        try {
+            const saved = await storage.saveSettingsProfile(name);
+            // It now matches the live settings, so it is the profile in effect.
+            storage.saveActiveSettingsProfile(saved);
+            await renderSettingsProfiles();
+            profileSelect.value = saved;
+            setProfileStatus(`Updated “${saved}”. In use: “${saved}”.`);
+        } catch (err) {
+            setProfileStatus(err.message || 'Could not update the profile.');
         }
     };
     document.getElementById('deleteSettingsProfileBtn').onclick = async () => {

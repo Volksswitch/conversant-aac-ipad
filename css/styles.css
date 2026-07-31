@@ -729,6 +729,14 @@ body.conv-bottom .palette-grid {
 .profiles-row { display: flex; gap: 0.5rem; margin-top: 0.4rem; align-items: center; flex-wrap: wrap; }
 .profiles-row #settingsProfileSelect,
 .profiles-row #settingsProfileNameInput { flex: 1 1 10rem; min-width: 0; }
+/* Profile actions sit on their own row UNDER the control they act on, and split
+   its full width evenly — the same treatment as the voice Test buttons. Sharing a
+   row with the select left each one a sliver, and target size is an accessibility
+   requirement for this population, not polish. `flex: 1 1 0` with `min-width: 0`
+   makes the three equal regardless of label length, so "Delete" is no smaller than
+   "Update"; the height floor comes from the global --btn-min-dim rule. */
+.profiles-actions { flex-wrap: nowrap; }
+.profiles-actions button { flex: 1 1 0; min-width: 0; }
 #settingsProfilesStatus:empty { display: none; }
 
 /* Each grid item is a CATEGORY CELL holding 1–2 stacked option buttons (the
@@ -1513,7 +1521,16 @@ dialog label {
     margin-bottom: 0.25rem;
 }
 
-dialog input,
+/* Full-width sizing is for TEXT-ENTRY controls, and radios and checkboxes are
+   excluded explicitly (Ken, July 31 2026). Left unscoped, this stretched a radio
+   to the full width of the panel, which pushed its own label text onto the next
+   line — the button ended up sitting ABOVE its label rather than beside it, as the
+   "Hearing the other person" pair did on the iPad. Every other radio and checkbox
+   in the app had been individually patched back to `width: auto`, which is the
+   tell: the rule never meant to include them, and any new one added without the
+   right class inherited the bug. `.switch input` genuinely wants 100% — it is an
+   invisible overlay on the toggle — and still sets it for itself. */
+dialog input:not([type="radio"]):not([type="checkbox"]),
 dialog select,
 dialog textarea {
     width: 100%;
@@ -1685,13 +1702,24 @@ dialog select {
 }
 .apikey-continue:hover { background: #22303d; }
 
-#testVoiceBtn {
+/* Both voice Test buttons share one rule so they stay identical — the partner one
+   had no rule of its own and inherited the dialog's generic button sizing, which
+   rendered it much narrower than its twin directly above (Ken, July 31 2026).
+   FULL WIDTH, matching the select each one sits under: a narrow target is a real
+   accessibility problem for users with limited motor control, not a cosmetic one,
+   and the horizontal space is already spoken for by the select above. The height
+   floor comes from the global --btn-min-dim rule, so both axes are now honest
+   targets. */
+#testVoiceBtn,
+#testPartnerVoiceBtn {
+    display: block;
+    width: 100%;
     margin-top: 0.4rem;
-    padding: 0.3rem 0.7rem;
+    padding: 0.5rem;
     border-radius: 4px;
     border: 1px solid #ccc;
     cursor: pointer;
-    font-size: 0.85rem;
+    font-size: 1rem;
 }
 
 .setting-group {
