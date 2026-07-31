@@ -572,6 +572,19 @@
                         </div>
                         <p class="setting-hint">Errors grouped by conversation (newest first). <b>Copy</b> puts the full report on the clipboard — each conversation's transcript together with its errors — ready to paste into a bug report. Also written to <code>errors.log</code> in your data folder.</p>
                     </div>
+                    <!-- Voice-list readout. Exists because a tablet has no console:
+                         when a voice installed on the device does not show up in the
+                         Voice list, this is the only way to see what the browser is
+                         actually offering the app, rather than guessing. -->
+                    <div class="setting-group">
+                        <label>Voices offered to the app <span id="voiceListCount" class="setting-hint"></span></label>
+                        <textarea id="voiceListView" readonly rows="6" placeholder="This browser has not reported any voices." aria-label="Voices offered to the app"></textarea>
+                        <div id="voiceListActions">
+                            <button id="refreshVoiceListBtn" type="button">Refresh</button>
+                            <button id="copyVoiceListBtn" type="button">Copy</button>
+                        </div>
+                        <p class="setting-hint">Every voice this browser offers, with the internal id that identifies it. If a voice you installed on the device is missing here, the app cannot use it — some systems only reveal a newly installed voice after the app has been <b>fully closed and reopened</b>, not merely reloaded. <b>Copy</b> puts the whole list on the clipboard for a bug report.</p>
+                    </div>
                     <div class="setting-group usage-group">
                         <label>Estimated API Cost</label>
                         <div id="usageDisplay">

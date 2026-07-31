@@ -708,8 +708,10 @@ body.conv-bottom .palette-grid {
 }
 .response-error-retry:hover { background: rgba(217, 130, 43, 0.15); }
 
-/* Error-log viewer (Settings → About). */
-#errorLogView {
+/* Error-log viewer and voice-list readout (Settings → About) — same treatment:
+   a read-only monospace pane with its actions on a row beneath. */
+#errorLogView,
+#voiceListView {
     width: 100%;
     font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
     font-size: 0.78rem;
@@ -723,7 +725,8 @@ body.conv-bottom .palette-grid {
     background: #fafafa;
     color: #333;
 }
-#errorLogActions { display: flex; gap: 0.5rem; margin-top: 0.4rem; }
+#errorLogActions,
+#voiceListActions { display: flex; gap: 0.5rem; margin-top: 0.4rem; }
 
 /* Settings-profiles controls (About tab) — a picker row + a save row. */
 .profiles-row { display: flex; gap: 0.5rem; margin-top: 0.4rem; align-items: center; flex-wrap: wrap; }
