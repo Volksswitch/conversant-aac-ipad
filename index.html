@@ -513,7 +513,10 @@
                     </div>
                     <div class="setting-group">
                         <button id="generateOpeningsBtn" type="button">Generate Screen Openings</button>
-                        <p class="setting-hint">Writes <strong>Screen Openings.txt</strong> to the root of your data folder. Choose a data folder first (General tab) if you haven't.</p>
+                        <!-- Wording is set at runtime by app.js: on a tablet the file is
+                             downloaded (the data folder there is private to the browser),
+                             on desktop it is written to the chosen folder. -->
+                        <p class="setting-hint" id="generateOpeningsHint"></p>
                     </div>
                 </div>
                 <div class="tab-panel" data-tab="about">

@@ -122,21 +122,30 @@ export function suggestedFilename(now = new Date()) {
         '-' + pad(now.getHours()) + pad(now.getMinutes()) + '.json';
 }
 
-// Trigger a download of the package. On iPadOS this opens the share/save sheet and
-// the file lands in Files, which is what makes the data user-visible again.
-export async function downloadPackage(appVersion) {
-    const pkg = await buildPackage(appVersion);
-    const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
+// Hand a file to the user through the browser's own download path. On iPadOS this
+// opens the share/save sheet and the file lands in Files — which is the ONLY way to
+// get a file out of this app on a tablet, since the data folder there is OPFS and
+// invisible. Shared with the Keyguard Design tab's "Screen Openings.txt" for exactly
+// that reason.
+export function downloadText(filename, text, mime = 'application/json') {
+    const blob = new Blob([text], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = suggestedFilename();
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     // Revoke on the next tick — revoking synchronously can cancel the download in
     // some browsers before it has read the blob.
     setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// Trigger a download of the package. On iPadOS this opens the share/save sheet and
+// the file lands in Files, which is what makes the data user-visible again.
+export async function downloadPackage(appVersion) {
+    const pkg = await buildPackage(appVersion);
+    downloadText(suggestedFilename(), JSON.stringify(pkg, null, 2));
     return pkg;
 }
 

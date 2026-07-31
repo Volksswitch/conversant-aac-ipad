@@ -71,7 +71,7 @@ const APP_VERSION = '0.5.99';
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = '42d64b7';
+const BUILD_STAMP = '7dfe3ba';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
@@ -2215,7 +2215,17 @@ function collectMainControls() {
 }
 
 async function generateScreenOpenings() {
-    if (!storage.hasDataFolder()) {
+    // WHERE THE FILE GOES depends on whether the user has a folder they can OPEN
+    // (Ken, July 31 2026). On desktop it is written to the picked data folder, as
+    // before. On a tablet there is no picker and the data folder is OPFS — private
+    // to the browser and invisible in the Files app — so writing there would report
+    // success for a file the user could never reach or email. The download path
+    // (share/save sheet → Files) is the only way off the device, so that is what a
+    // no-picker platform gets. Branch on the CAPABILITY, never on the user agent:
+    // iPadOS Safari reports itself as a Mac, so a UA test would send the one browser
+    // that needs the download down the folder path.
+    const canPickFolder = storage.supportsUserChosenFolder();
+    if (canPickFolder && !storage.hasDataFolder()) {
         window.alert('Choose a data folder first (Settings → General → Data Folder), then try again.');
         return;
     }
@@ -2236,8 +2246,15 @@ async function generateScreenOpenings() {
         return `[ ${JSON.stringify(name)}, "r", ${h}, ${w}, ${rad}, ${x}, ${y}, 0, "C", "T", 0, 0, [], [] ],`;
     });
 
+    const text = lines.join('\n') + '\n';
+    if (!canPickFolder) {
+        dataTransfer.downloadText('Screen Openings.txt', text, 'text/plain');
+        window.alert(`"Screen Openings.txt" (${lines.length} controls) is ready to save. ` +
+            'Choose "Save to Files" in the sheet that appears, then attach it to an email.');
+        return;
+    }
     try {
-        await storage.writeFile('Screen Openings.txt', lines.join('\n') + '\n');
+        await storage.writeFile('Screen Openings.txt', text);
         window.alert(`Wrote "Screen Openings.txt" (${lines.length} controls) to the data folder.`);
     } catch (err) {
         window.alert(`Could not write the file: ${err.message}`);
@@ -2909,6 +2926,13 @@ function openSettings() {
     };
 
     document.getElementById('generateOpeningsBtn').onclick = generateScreenOpenings;
+    // Say where the file will actually land on THIS device — see generateScreenOpenings.
+    document.getElementById('generateOpeningsHint').innerHTML = storage.supportsUserChosenFolder()
+        ? 'Writes <strong>Screen Openings.txt</strong> to the root of your data folder. ' +
+          "Choose a data folder first (General tab) if you haven't."
+        : 'Saves <strong>Screen Openings.txt</strong> to your device. Choose ' +
+          '<strong>Save to Files</strong> when the sheet appears, then attach it to an email ' +
+          'from the Files app.';
 
     document.getElementById('testVoiceBtn').onclick = () => {
         tts.setVoice(voiceSelect.value || null);
