@@ -318,7 +318,12 @@
                     <div class="setting-group">
                         <label for="partnerVoiceSelect">Practice partner voice</label>
                         <select id="partnerVoiceSelect"></select>
+                        <button id="testPartnerVoiceBtn" type="button">Test</button>
                         <p class="setting-hint">In Practice Mode, the AI plays the other person. Give them a different voice from yours so you can tell who's speaking. "Auto" picks a voice that isn't yours.</p>
+                        <!-- Names the voice Test actually used. Worth the line only for
+                             "Auto", where the choice is otherwise invisible — and it is the
+                             default, so it is the case most likely to surprise. -->
+                        <p class="setting-hint" id="partnerVoiceStatus" hidden></p>
                     </div>
                     <div class="setting-group">
                         <label>Keyboard for typing</label>

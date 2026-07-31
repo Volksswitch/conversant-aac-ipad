@@ -1478,8 +1478,30 @@ body.conv-bottom .tab-panel[data-tab="express"].active {
     column-count: auto;
     padding: 0;   /* the editor rows manage their own spacing and need full width */
 }
+/* Practice is a list of choosable cards, so it is single-column for the same
+   reason (Ken, July 31 2026). In two columns Safari was slicing a scenario card
+   across the column break — its heading at the foot of one column and its
+   description at the head of the next, the same card appearing to be two.
+   Fixed by taking the panel out of multi-column rather than by asking the
+   fragmenter not to split the card: Chrome never splits a flex item, so the
+   defect could not be reproduced or a break hint verified on this machine, and
+   an unverifiable hint is not a fix. One column also gives the cards their full
+   width, which makes them better targets — the same reasoning as Express above. */
+.tab-panel[data-tab="practice"].active,
+body.conv-bottom .tab-panel[data-tab="practice"].active {
+    column-count: auto;
+}
 .setting-group {
     break-inside: avoid;
+}
+/* Belt to the braces above: if any of these ever flow in columns again, they must
+   still never be sliced in half. `-webkit-column-break-inside` is the legacy alias
+   WebKit honours; harmless where the standard property is supported. .ee-row is
+   here because the Controls tab reuses those rows and IS multi-column. */
+.practice-card,
+.ee-row {
+    break-inside: avoid;
+    -webkit-column-break-inside: avoid;
 }
 
 /* Settings form elements */

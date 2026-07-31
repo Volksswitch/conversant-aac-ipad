@@ -71,7 +71,7 @@ const APP_VERSION = '0.5.99';
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = '2ef1bf1';
+const BUILD_STAMP = '1ffa38f';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
@@ -1208,8 +1208,9 @@ function resumeOrIdle() {
 // The voice the AI partner speaks in: the user's chosen partner voice, or — if
 // none set — the first available voice that isn't the user's own, so it's audibly
 // distinct out of the box.
-function pickPartnerVoice() {
-    const chosen = storage.loadPartnerVoice();
+// `chosen` is passed in by the Settings Test button so it can resolve the value
+// currently showing in the select rather than the last-saved one.
+function pickPartnerVoice(chosen = storage.loadPartnerVoice()) {
     if (chosen) return chosen;
     const own = tts.getSelectedVoiceURI();
     const other = tts.getVoices().find(v => v.voiceURI !== own);
@@ -3012,6 +3013,44 @@ function openSettings() {
         tts.setVoice(voiceSelect.value || null);
         tts.speak('This is how I will sound during our conversation.');
     };
+
+    // Test the practice partner's voice. This works for "Auto" too: Auto is not
+    // random — pickPartnerVoice takes the first voice that is not the user's own —
+    // so it can be resolved here and demonstrated exactly. That matters because
+    // Auto is the DEFAULT, and a Test button that refused the default would leave
+    // the common case unhearable. The resolved name is shown for Auto, since
+    // otherwise the user has no way to know what they just heard.
+    // NOTE: read the element here rather than using the `partnerVoiceSelect` const,
+    // which is declared further down this function — referencing it now would hit
+    // the temporal dead zone the moment the change listener below is attached.
+    const partnerVoiceEl = document.getElementById('partnerVoiceSelect');
+    document.getElementById('testPartnerVoiceBtn').onclick = () => {
+        const status = document.getElementById('partnerVoiceStatus');
+        const isAuto = !partnerVoiceEl.value;
+        const uri = pickPartnerVoice(partnerVoiceEl.value);
+        // The one case Auto genuinely cannot satisfy: a device with a single voice
+        // has no other to fall back to, so the partner would sound exactly like the
+        // user. Say so rather than playing an identical voice and looking broken.
+        if (isAuto && !uri) {
+            status.textContent = 'This device only offers one voice, so the other person ' +
+                'will sound exactly like you. Practice still works.';
+            status.hidden = false;
+            return;
+        }
+        if (isAuto) {
+            const v = tts.getVoices().find(x => x.voiceURI === uri);
+            status.textContent = `Auto chose ${v ? v.name : 'another voice'}.`;
+            status.hidden = false;
+        } else {
+            status.hidden = true;
+        }
+        tts.speak('Hello — in Practice Mode, this is the voice of the person you are talking to.',
+            { voiceURI: uri });
+    };
+    // A changed selection makes any previously-reported Auto choice stale.
+    partnerVoiceEl.addEventListener('change', () => {
+        document.getElementById('partnerVoiceStatus').hidden = true;
+    });
 
     // No Save button (Ken, June 14 2026): every control applies AND persists
     // immediately, so Settings doubles as a live test bench (e.g. trying the
