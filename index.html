@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- maximum-scale/user-scalable state the intent and are honoured by Android and
+         desktop. iOS Safari deliberately IGNORES both for accessibility, so they are
+         NOT the mechanism here — pinch is blocked by blockZoomGestures() in app.js and
+         double-tap by `touch-action: manipulation`. See the body rule in styles.css for
+         why an app backed by a physical keyguard cannot tolerate zoom. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Conversant AAC</title>
     <meta name="description" content="Conversant AAC gives non-speaking individuals access to real-time conversation.">
     <meta name="theme-color" content="#2c3e50">

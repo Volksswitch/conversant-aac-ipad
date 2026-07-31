@@ -71,7 +71,7 @@ const APP_VERSION = '0.5.99';
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = '7dfe3ba';
+const BUILD_STAMP = '2ef1bf1';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
@@ -358,6 +358,7 @@ function initApp() {
     applyButtonSizing();   // compute the conversation layout (region sizes + gaps)
     // Region sizes depend on the viewport — recompute on resize/orientation.
     window.addEventListener('resize', applyButtonSizing);
+    blockZoomGestures();
     ui.setCardsPerCategory(storage.loadResponsesPerCategory()); // 8-card mode → 8 reserved slots
     ui.clearResponseOptions(); // render the reserved empty card footprint at rest
     renderExpressPanel();
@@ -2059,6 +2060,51 @@ const SHRINK_GAP_REM = 1.4;       // how much gap a full left-shrink adds
 const remPx = () => parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
 const lerp = (pos, lo, hi) => lo + (Math.max(0, Math.min(100, pos)) / 100) * (hi - lo);
 
+// THE LAYOUT VIEWPORT, never window.innerWidth/innerHeight (Ken, July 31 2026).
+// The regions are sized as a fraction of the screen, so they must be measured
+// against the screen — and on Safari (iPad included) window.innerWidth/Height
+// report the VISUAL viewport, which shrinks when the page is pinch-zoomed. The
+// solver bakes its result into --conv-dock-w as a px value, so one run while
+// zoomed permanently shrinks the dock: it only recomputes on resize or a settings
+// change, so un-zooming does not put it back and the layout stays wrong until the
+// app is restarted. That is the "Express Panel kept shrinking while I worked in
+// Settings" report. documentElement.clientWidth/Height is the layout viewport and
+// is unaffected by zoom; where there is no zoom the two agree exactly, so this is
+// a no-op on desktop.
+const layoutVW = () => document.documentElement.clientWidth || window.innerWidth;
+const layoutVH = () => document.documentElement.clientHeight || window.innerHeight;
+
+// How far the page is pinch-zoomed. 1 = not zoomed. Anything else means the
+// on-screen geometry no longer matches what getBoundingClientRect reports, which
+// matters for the keyguard measurements. Absent API → assume 1 and do not block.
+const zoomScale = () => (window.visualViewport && window.visualViewport.scale) || 1;
+
+// Block pinch-to-zoom (Ken, July 31 2026: "pinch/zoom should be disabled for this
+// app"). The viewport meta CANNOT do this on iOS — Safari has ignored
+// user-scalable=no since iOS 10 on accessibility grounds — so the only mechanism
+// that works there is preventDefault on Safari's own non-standard gesture events.
+// They do not exist in Chrome/Edge, where the meta tag is honoured instead, so
+// this listens for both and each platform is covered by the half that applies.
+// Double-tap zoom is handled separately by `touch-action: manipulation` in CSS.
+//
+// Why the app refuses a gesture the user made deliberately: the keyguard's holes
+// are cut in plastic and cannot zoom with the screen, so any zoom puts every
+// control out from under its hole. Text and button sizes are user settings here,
+// which serves the same need without breaking the overlay.
+function blockZoomGestures() {
+    // Safari: pinch. Passive listeners cannot preventDefault, so say so explicitly
+    // — these are exactly the events browsers default to passive.
+    for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+        document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+    }
+    // Chromium on a touchscreen (a Surface is one too): two-finger pinch arrives as
+    // a multi-touch touchmove. Single-touch is untouched, so scrolling and every
+    // button still behave normally.
+    document.addEventListener('touchmove', (e) => {
+        if (e.touches && e.touches.length > 1) e.preventDefault();
+    }, { passive: false });
+}
+
 // Count rows + widest total span of the active dock layout (kept for any
 // consumers that still key off the grid shape).
 function activeLayoutGrid() {
@@ -2076,7 +2122,7 @@ function activeLayoutGrid() {
 function applyButtonSizing() {
     const root = document.documentElement.style;
     const rem = remPx();
-    const VW = window.innerWidth, VH = window.innerHeight;
+    const VW = layoutVW(), VH = layoutVH();
 
     // Slider values → px. Effective gap = max(gap-size, min-gap) (min-gap is a
     // one-way floor; lowering it leaves gap-size put — Ken #3).
@@ -2229,6 +2275,17 @@ async function generateScreenOpenings() {
         window.alert('Choose a data folder first (Settings → General → Data Folder), then try again.');
         return;
     }
+    // A zoomed page measures wrong in BOTH directions at once — Safari scales
+    // devicePixelRatio with the zoom and reports the visual viewport — so the file
+    // would come out uniformly off and the error would only show up after the
+    // plastic was cut. Zoom is blocked (blockZoomGestures), but browser-level and
+    // OS accessibility zoom are outside our reach, so refuse rather than emit a
+    // plausible-looking wrong file.
+    if (Math.abs(zoomScale() - 1) > 0.01) {
+        window.alert('The screen is zoomed, so the measurements would be wrong. ' +
+            'Reset the zoom to 100% and try again.');
+        return;
+    }
     const titleBar = Math.max(0, Math.round(Number(document.getElementById('titleBarHeightInput').value) || 0));
     const dpr = window.devicePixelRatio || 1;
     const px = (n) => Math.round(n * dpr); // CSS px → device/screenshot px
@@ -2247,15 +2304,32 @@ async function generateScreenOpenings() {
     });
 
     const text = lines.join('\n') + '\n';
+
+    // State the screenshot these coordinates assume. The openings are in device
+    // pixels, so they only line up over a screenshot at EXACTLY this size — and the
+    // commonest way a keyguard comes out misaligned is a screenshot that got
+    // resized on its way to the designer (mail clients shrink attached images by
+    // default), which scales the error with distance from the top-left corner and
+    // looks like the app measured wrong. Naming the expected size makes that
+    // checkable in seconds instead of after the plastic is cut.
+    const shotW = px(layoutVW());
+    const shotH = px(layoutVH()) + titleBar;
+    const expected = `Line these up over a screenshot ${shotW} × ${shotH} pixels — ` +
+        `if yours is a different size, it was resized and the openings will not fit. ` +
+        `(Measured ${layoutVW()} × ${layoutVH()} at ${dpr}×` +
+        `${titleBar ? `, plus ${titleBar}px for the bar above the app` : ', no bar above the app'}.)`;
+
     if (!canPickFolder) {
         dataTransfer.downloadText('Screen Openings.txt', text, 'text/plain');
         window.alert(`"Screen Openings.txt" (${lines.length} controls) is ready to save. ` +
-            'Choose "Save to Files" in the sheet that appears, then attach it to an email.');
+            'Choose "Save to Files" in the sheet that appears, then attach it to an email.\n\n' +
+            expected);
         return;
     }
     try {
         await storage.writeFile('Screen Openings.txt', text);
-        window.alert(`Wrote "Screen Openings.txt" (${lines.length} controls) to the data folder.`);
+        window.alert(`Wrote "Screen Openings.txt" (${lines.length} controls) to the data folder.\n\n` +
+            expected);
     } catch (err) {
         window.alert(`Could not write the file: ${err.message}`);
     }

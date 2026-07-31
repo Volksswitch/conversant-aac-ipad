@@ -142,6 +142,22 @@ body {
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    /* NO ZOOM ANYWHERE IN THIS APP (Ken, July 31 2026). A zoomed page and a
+       physical keyguard are incompatible by definition: the holes are cut in the
+       plastic and cannot scale, so any zoom moves every control out from under
+       them. It also corrupts measurement — Safari reports the VISUAL viewport in
+       window.innerWidth and scales devicePixelRatio with the zoom, so a layout
+       computed or a keyguard measured while zoomed is silently wrong.
+       "pan-x pan-y" allows scrolling in both directions and nothing else, so it
+       drops BOTH zoom gestures — pinch and the double-tap that is the easy accident
+       on a tablet. (`manipulation`, the more familiar value, would only drop the
+       double-tap: it still permits pinch.) blockZoomGestures() in app.js is the
+       belt to this pair of braces, and is what actually does the work on iOS, where
+       Safari ignores the viewport meta's user-scalable for accessibility.
+       This is not the accessibility loss it would be in an ordinary page: text
+       and button size are user settings here, per surface, which is a better
+       answer for this population than pinching a keyguarded screen. */
+    touch-action: pan-x pan-y;
 }
 
 /* Pre-start block: overlays the transcript region (empty before a conversation)
@@ -2535,7 +2551,11 @@ body.conv-bottom .tab-panel[data-tab="aboutme"].active {
     display: flex;
     flex-direction: column;
     gap: var(--grid-gap);    /* between key rows — keyguard bar width (settable) */
-    touch-action: manipulation;
+    /* Matches the body rule — NOT "manipulation", which would re-permit pinch on
+       the one surface most likely to be touched with two fingers by accident.
+       touch-action resolves on the touched element, so a laxer value here would
+       have punched a hole in the app-wide rule. */
+    touch-action: pan-x pan-y;
     user-select: none;
 }
 
