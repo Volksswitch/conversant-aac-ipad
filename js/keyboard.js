@@ -27,7 +27,7 @@ import * as prediction from './prediction.js';
 // Windows keyboard is suppressed there too and the app's own (side-docked)
 // keyboard is used instead (Ken, June 14 2026 — resolves the OS-vs-app keyboard
 // question for Settings in favor of the app keyboard).
-const IN_SCOPE = '#composerInput, .wv-text, #apiKeyInput, #controlEditor input, #expressEditor input, #settingsProfileNameInput';
+const IN_SCOPE = '#composerInput, .wv-text, #apiKeyInput, #deepgramKeyInput, #controlEditor input, #expressEditor input, #settingsProfileNameInput';
 
 // Controls that must NOT dismiss the keyboard when tapped, even though tapping
 // them blurs the composer textarea. The composer (unlike About Me / Settings)

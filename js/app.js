@@ -1,4 +1,4 @@
-import * as stt from './stt.js';
+﻿import * as stt from './stt.js';
 import * as tts from './tts.js';
 import * as llm from './llm.js';
 import * as ui from './ui.js';
@@ -28,16 +28,16 @@ import { confirmDanger } from './confirm-dialog.js';
 
 // The platform verdict on partner capture (see platform.js), or null when capture
 // is expected to work. Non-null drives the pre-start warning; it does NOT by
-// itself disable anything — see applyListenAvailability.
+// itself disable anything â€” see applyListenAvailability.
 let listeningUnavailable = null;
 
-// Disable the Listen control ONLY where there is no recognizer to call at all —
+// Disable the Listen control ONLY where there is no recognizer to call at all â€”
 // never merely because this platform measured unreliable (Ken, July 30 2026:
-// "for now, don't disable the listening function… give Safari every opportunity to
+// "for now, don't disable the listening functionâ€¦ give Safari every opportunity to
 // surprise us"). The user is warned before they start and then allowed to try; a
 // measurement taken on one build of one iPadOS should not permanently refuse to
 // attempt something Apple may have since fixed. Where the API is genuinely absent
-// there is nothing to attempt, so the button would silently do nothing — that case
+// there is nothing to attempt, so the button would silently do nothing â€” that case
 // stays disabled.
 //
 // Practice Mode is exempt even then: that same button never opens the microphone,
@@ -53,32 +53,32 @@ function applyListenAvailability() {
     if (blocked) btn.title = listeningUnavailable.reason + ' ' + listeningUnavailable.remedy;
     // Not blocked: let the normal renderer put the icon and its tooltip back.
     // isListening is false on every path that reaches here, so this cannot fire
-    // the start-of-listening chime (which needs a false→true edge).
+    // the start-of-listening chime (which needs a falseâ†’true edge).
     else ui.setListenButtonState(isListening);
 }
 
-// Point-release version shown in Settings → About. Bump alongside the
+// Point-release version shown in Settings â†’ About. Bump alongside the
 // sw.js CACHE_VERSION on every release so beta testers can report exactly
 // which build they're on.
-const APP_VERSION = '0.5.99';
+const APP_VERSION = '0.6.0';
 
 // The exact commit this build came from. Rewritten by the deploy workflow (it
 // substitutes the placeholder below); a copy served from the working tree keeps
 // the placeholder and reports "dev".
 //
 // Why this exists: the version alone can't answer "am I looking at the delivery I
-// just pushed?" — several pushes share one version during a dev cycle, and the
-// version lives in Settings → About, which is unreachable until Start has run. So
+// just pushed?" â€” several pushes share one version during a dev cycle, and the
+// version lives in Settings â†’ About, which is unreachable until Start has run. So
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = '53c846d';
+const BUILD_STAMP = 'e905113';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
 let isListening = false;
 let lastPalette = [];
-// Practice Mode (§8): the AI plays the partner; the mic is bypassed. When active,
+// Practice Mode (Â§8): the AI plays the partner; the mic is bypassed. When active,
 // the listen/response/teardown paths fork to the practice equivalents below.
 let practiceMode = false;
 let practiceScenario = null;
@@ -86,27 +86,27 @@ let practiceScenario = null;
 // Grows across silence periods until the user picks a response.
 let currentPartnerText = '';
 // The alternatives the partner has on the table right now ("mild","moderate",
-// "severe") — from the classification's offered_options. They fill the Express
+// "severe") â€” from the classification's offered_options. They fill the Express
 // Panel's reserved choice cells so the user can ask for the full four-response
 // treatment of one of them; [] whenever no closed set is open.
 let offeredChoices = [];
 // How the user has steered THIS partner turn: a tapped choice chip and/or the
-// text they typed into Reframe. "New N" must re-apply it (Ken, July 27 2026 —
+// text they typed into Reframe. "New N" must re-apply it (Ken, July 27 2026 â€”
 // pressing it after choosing "milk" was throwing the choice away and coming back
 // with all three options): "give me different options" means different options
-// UNDER THE SAME STEERING, not a reset. The two are independent — a chip replaces
-// the chip, Reframe text replaces the text — and both last only as long as the
+// UNDER THE SAME STEERING, not a reset. The two are independent â€” a chip replaces
+// the chip, Reframe text replaces the text â€” and both last only as long as the
 // partner turn they steer, which is what keeps Reframe one-shot ACROSS turns
 // (the standing v0.3.20 decision) while making it stick WITHIN one.
 let activeSteer = { focusChoice: null, steer: null };
 // Bumped whenever a speaking button that does NOT consume the partner turn (Say
 // again / Hold on / Wind down) fires, so an already-in-flight generateOptions won't
-// re-schedule a placeholder after the user has acted — WITHOUT discarding the
+// re-schedule a placeholder after the user has acted â€” WITHOUT discarding the
 // response options it's still producing (that's why this is separate from
 // generationToken, which a response selection uses to cancel generation outright).
 let placeholderEpoch = 0;
 // Cumulative audio (seconds) the paid transcription backend has uploaded since it
-// was last started — the source reports a running total, so this holds the last
+// was last started â€” the source reports a running total, so this holds the last
 // value seen in order to store only the increment.
 let sttBilledThisSession = 0;
 // Abort placeholders now AND stop an in-flight generation from restarting one.
@@ -115,20 +115,20 @@ function abortPlaceholders() {
     placeholderEpoch++;
 }
 // Index in conversationHistory of the partner's current turn ONCE it has been
-// promoted from the bottom "live" line into the ordered history — which happens
+// promoted from the bottom "live" line into the ordered history â€” which happens
 // when a user turn (a Say-again / Hold on / Ask-them-to-repeat command) is logged
 // mid-turn, so that user turn renders AFTER the partner turn (mirroring the
 // transcript, where the partner turn is written at its pause). -1 = not promoted
 // (still the live line). Reset per partner turn; commitExchange finalizes it.
 let pendingPartnerHistoryIdx = -1;
 // Increments on every silence period / reset so that a slower, earlier
-// option-generation round-trip can't overwrite a newer one — latest wins.
+// option-generation round-trip can't overwrite a newer one â€” latest wins.
 let generationToken = 0;
 // Auto-resume gate (CLAUDE.md Further Design Thoughts #4): listening is never
 // started automatically at app startup. The user must manually invoke Start
 // Listening at least once per session before auto-resume can fire; a manual
 // Stop re-arms the requirement. Set true by a manual start, false by a manual
-// stop. The automatic stop when a response is selected does NOT clear it — that
+// stop. The automatic stop when a response is selected does NOT clear it â€” that
 // is exactly the boundary auto-resume is meant to continue past.
 let manualListenArmed = false;
 
@@ -141,7 +141,7 @@ let activePartner = null;
 let activeFeeling = null;
 
 // Conversation privacy (Ken, July 2026): when true, the current conversation is
-// NOT written to the data folder — the user may want a conversation that can't be
+// NOT written to the data folder â€” the user may want a conversation that can't be
 // retrieved later. Seeded from the Settings default at the start of each
 // conversation; the Command Bar "Don't save" button toggles it live.
 let conversationPrivate = false;
@@ -150,7 +150,7 @@ let conversationPrivate = false;
 // response, composed text, an Express phrase, an opener/closer, a repaired
 // utterance, or a spoken command like Hold on / Ask them to repeat / Repeat what
 // I said). The user's statements are shown directly in the transcript, so they
-// must NOT also appear as the tentative "now-playing" pre-text line (Ken) — that
+// must NOT also appear as the tentative "now-playing" pre-text line (Ken) â€” that
 // line is reserved for system-generated placeholder speech the user can't
 // otherwise see.
 let speakingUserStatement = false;
@@ -171,7 +171,7 @@ function applyPrivacyState() {
 // What the partner has said so far this turn, at the moment the user acts. The
 // live STT transcript is more complete than currentPartnerText (which is only
 // refreshed at each silence checkpoint), so interrupting the partner mid-utterance
-// — e.g. an instant "Bye" before they've paused — still records what they'd said
+// â€” e.g. an instant "Bye" before they've paused â€” still records what they'd said
 // up to that point instead of dropping it (Ken). Falls back to currentPartnerText.
 function heardPartnerText() {
     return (stt.getCurrentTranscript() || currentPartnerText || '').trim();
@@ -240,42 +240,42 @@ function initApp() {
     storage.setAppVersion(APP_VERSION);
 
     // Any logged error (thrown API/parse failure OR a silent no-responses path)
-    // trips a faint-red wash on the transcript — a non-verbal heads-up that a
+    // trips a faint-red wash on the transcript â€” a non-verbal heads-up that a
     // hiccup occurred and behavior may deviate; cleared on the next working
     // cycle (a real palette render) or on conversation reset.
     window.addEventListener('aac-error-logged', () => ui.setTranscriptError(true));
 
-    // Log the display metrics (and re-log on every viewport change) so we — and
-    // beta testers — can see the real pixel box the app is running in. Started
+    // Log the display metrics (and re-log on every viewport change) so we â€” and
+    // beta testers â€” can see the real pixel box the app is running in. Started
     // first so the initial numbers are captured even if STT is unsupported.
     viewport.init();
 
     // Can this environment actually capture the partner? platform.js answers from
-    // MEASURED behavior, not feature detection — on iPadOS the API is present and
+    // MEASURED behavior, not feature detection â€” on iPadOS the API is present and
     // starts happily in a Home Screen app and in Chrome/Edge, then delivers nothing
     // at all. Trusting stt.isSupported() there would leave the user staring at a
     // lit microphone that will never hear a word, which for an AAC user is worse
     // than being told plainly. The app remains fully usable without capture (the
     // AI-optional property): the Express Panel and "In my own words" still speak,
-    // and turns are still recorded — so this disables listening, not the app.
+    // and turns are still recorded â€” so this disables listening, not the app.
     // A paid backend bypasses the platform verdict entirely: it does its own
     // capture and never touches the browser's recognizer, so "Safari delivers
     // nothing in a Home Screen app" simply does not apply to it. That is the whole
-    // point of paying — capture where the platform has none.
+    // point of paying â€” capture where the platform has none.
     const sttProvider = storage.loadSttProvider();
     const usingPaidStt = sttProvider === 'deepgram' && !!(storage.loadDeepgramKey() || '').trim();
     const speechSupport = platform.speechRecognitionSupport();
     listeningUnavailable = (usingPaidStt || speechSupport.usable) ? null : speechSupport;
 
     // Recording indicator: whether the start-of-listening chime is enabled
-    // (partner-awareness cue — see chime.js). Applied here so it's active before
+    // (partner-awareness cue â€” see chime.js). Applied here so it's active before
     // the first listen; also live-updated from Settings.
     chime.setEnabled(storage.loadListenChime());
-    // With auto-resume on, the mic restarts every exchange — chime only at the
+    // With auto-resume on, the mic restarts every exchange â€” chime only at the
     // start of the conversation rather than on each one (Ken).
     chime.setOncePerConversation(storage.loadAutoRelisten());
 
-    // Wire up capture wherever there is a recognizer to wire — including the
+    // Wire up capture wherever there is a recognizer to wire â€” including the
     // platforms platform.js measured as delivering nothing. That is the whole
     // point of warning rather than blocking (Ken, July 30 2026): if the button is
     // live but stt was never initialized, pressing it would do nothing and Safari
@@ -285,8 +285,8 @@ function initApp() {
     // Every stt entry point is null-safe when init() never ran (`if (!recognition)
     // return`), so on that path the rest of the app calls them harmlessly and no
     // microphone is ever lit. Initialization MUST continue past this point:
-    // everything below — the Start button, the Express Panel, "In my own words",
-    // the keyboard, Settings — is what the notice promises still works, and an
+    // everything below â€” the Start button, the Express Panel, "In my own words",
+    // the keyboard, Settings â€” is what the notice promises still works, and an
     // early return here left an iPad Home Screen app with no working controls at
     // all, Start included (Ken, July 30 2026).
     if (speechSupport.apiPresent || usingPaidStt) {
@@ -311,15 +311,15 @@ function initApp() {
 
     // Tell the STT layer what the app is speaking so it can discard its own TTS
     // echo (placeholder ladder, prompts) instead of mistaking it for the partner and
-    // renewing the partner's turn. The mic stays on throughout — only matching
+    // renewing the partner's turn. The mic stays on throughout â€” only matching
     // echo content is dropped.
     tts.onSpeakingChange((speaking, text) => {
         if (speaking) stt.noteSpokenStart(text);
         else stt.noteSpokenEnd();
     });
 
-    // Surface what the app is saying on the user's behalf as text in Region A —
-    // nothing the system speaks is invisible (UI-Design.docx §7). Reserved for
+    // Surface what the app is saying on the user's behalf as text in Region A â€”
+    // nothing the system speaks is invisible (UI-Design.docx Â§7). Reserved for
     // SYSTEM speech (placeholders): the user's OWN statements go straight to the
     // transcript, so showing them here as tentative "pre-text" is redundant (Ken).
     tts.onSpeakingChange((speaking, text) => {
@@ -338,9 +338,9 @@ function initApp() {
     ui.onReframeClick(handleReframe);
     ui.onCancelComposerClick(handleCancelComposed);
     ui.onSettingsClick(openSettings);
-    // About Me is no longer a title-bar button — it's launched from the Settings
+    // About Me is no longer a title-bar button â€” it's launched from the Settings
     // panel's "About Me" tab (see initSettingsTabs).
-    // Persistent override controls (Conversation-Engine-Design.docx §5.1) — the
+    // Persistent override controls (Conversation-Engine-Design.docx Â§5.1) â€” the
     // user's escape hatch when the engine's mode inference is wrong.
     ui.onInitiateClick(handleInitiate);
     ui.onSayAgainClick(handleSayAgain);
@@ -357,19 +357,19 @@ function initApp() {
     ui.applyControlIcons();
     applyConversationDockClasses();
     applyButtonSizing();   // compute the conversation layout (region sizes + gaps)
-    // Region sizes depend on the viewport — recompute on resize/orientation.
+    // Region sizes depend on the viewport â€” recompute on resize/orientation.
     window.addEventListener('resize', applyButtonSizing);
     blockZoomGestures();
-    ui.setCardsPerCategory(storage.loadResponsesPerCategory()); // 8-card mode → 8 reserved slots
+    ui.setCardsPerCategory(storage.loadResponsesPerCategory()); // 8-card mode â†’ 8 reserved slots
     ui.clearResponseOptions(); // render the reserved empty card footprint at rest
     renderExpressPanel();
     expressEditor.init(document.getElementById('expressEditor'), { onChange: renderExpressPanel });
     controlEditor.init(document.getElementById('controlEditor'), { onChange: applyControlPhrases });
-    // About Me is an ordinary Settings tab — it renders into its tab-panel and is
+    // About Me is an ordinary Settings tab â€” it renders into its tab-panel and is
     // dismissed by the shared Settings Close button (no overlay of its own).
     worldviewUI.init();
     applyFontScales();   // user-set Transcript / Composer / Express text sizes
-    initSliderSteppers(); // − / + fine-step buttons on the size sliders
+    initSliderSteppers(); // âˆ’ / + fine-step buttons on the size sliders
     ui.setRegenerateLabel(storage.loadResponsesPerCategory() * 4); // "New 4"/"New 8"
     keyboard.init();
     keyboard.setMode(storage.loadKeyboardMode());
@@ -393,14 +393,14 @@ function initApp() {
         }
         keyboard.hideKeyboard();
     });
-    // Release number with the build appended (Ken, July 30 2026) — "0.5.99 ·
+    // Release number with the build appended (Ken, July 30 2026) â€” "0.5.99 Â·
     // 9e73383". A bug report needs the exact code, not just the version: several
     // deploys share one version during a dev cycle. This is the only place it is
     // shown; the temporary copy under the Start button was removed once the iPad
     // Home Screen app was confirmed to get that far. The startup-failure card
     // repeats it, since that is shown when Settings cannot be reached.
     const versionEl = document.getElementById('aboutVersion');
-    if (versionEl) versionEl.textContent = `${APP_VERSION} · ${BUILD_ID}`;
+    if (versionEl) versionEl.textContent = `${APP_VERSION} Â· ${BUILD_ID}`;
 
     tts.onVoicesReady(() => {
         const savedURI = storage.loadVoiceURI();
@@ -424,27 +424,27 @@ function initApp() {
     // cache; handleStart() reloads from the folder once it's granted.
     worldview.loadRegistry().catch(() => { /* registry optional at startup */ });
     worldview.load().catch(() => { /* falls back to empty profile */ });
-    // Relationship graph (people/edges) — its own model + file. Loaded here from
+    // Relationship graph (people/edges) â€” its own model + file. Loaded here from
     // the cache; handleStart() reloads from the folder and runs the one-time
     // migration of the former worldview "People" module once both are loaded.
     relationships.load().catch(() => { /* falls back to empty graph */ });
-    // Express Panel items — its own model + file. Loaded from cache now; the
+    // Express Panel items â€” its own model + file. Loaded from cache now; the
     // folder copy (source of truth) is adopted in handleStart once granted.
     expressPanel.load().then(renderExpressPanel).catch(() => { /* falls back to defaults */ });
-    // Control phrases (Hold on / Pardon? / openers / closers) — own model + file.
+    // Control phrases (Hold on / Pardon? / openers / closers) â€” own model + file.
     controlPhrases.load().then(applyControlPhrases).catch(() => { /* engine keeps inline defaults */ });
 
     const savedKey = storage.loadApiKey();
     if (savedKey) {
         llm.setApiKey(savedKey);
-        ui.setStatus('Ready — API key loaded');
+        ui.setStatus('Ready â€” API key loaded');
     } else {
         // The status bar is visually hidden (v0.5.2), so a setStatus message alone is
         // invisible. Show the visible pre-start prompt instead (it lives in the start
         // block over the transcript). Keep the aria-live status for screen readers.
-        ui.setStatus('No API key set — open Settings to add your Claude API key');
+        ui.setStatus('No API key set â€” open Settings to add your Claude API key');
     }
-    // Neither the "no API key" notice nor the listening notice is shown here —
+    // Neither the "no API key" notice nor the listening notice is shown here â€”
     // they are steps 3 and 4 of the pre-start sequence (see handleStart), so they
     // never overlap the upgrade screen or each other.
 
@@ -454,7 +454,7 @@ function initApp() {
 }
 
 // --- API key surfaces (Ken, July 2026) -----------------------------------------
-// The manual (§3.2) promises a red invalid-key warning under the field and cues the
+// The manual (Â§3.2) promises a red invalid-key warning under the field and cues the
 // user to add a key; neither existed. Three surfaces: (1) a format warning under the
 // API Key field as you type; (2) a "Test" button that verifies the key against the
 // API; (3) a visible "no API key yet" prompt on the pre-start screen (the hidden
@@ -465,26 +465,26 @@ function initApp() {
  * Key fields: hidden at rest, readable while you are editing them.
  *
  * These were masked in CSS with -webkit-text-security, which is the property
- * Safari uses to render a password field — so Safari's password manager classified
+ * Safari uses to render a password field â€” so Safari's password manager classified
  * them as credentials and offered to "Save Password" on every launch of the iPad
  * app, asking for a user name that means nothing for an API key (Ken, July 30
  * 2026). autocomplete="off" does not suppress that heuristic; removing the
  * password-shaped signal does.
  *
- * So a stored key is shown redacted — enough of each end to recognise WHICH key it
- * is, never enough to use — and the real value is put back only while the field has
+ * So a stored key is shown redacted â€” enough of each end to recognise WHICH key it
+ * is, never enough to use â€” and the real value is put back only while the field has
  * focus. That is also better than masking was: a masked field makes a truncated
  * paste invisible, which is precisely the failure the Test button exists to catch.
  */
 function redactKey(key) {
     const k = (key || '').trim();
-    if (k.length <= 12) return k ? '•'.repeat(k.length) : '';
-    return `${k.slice(0, 7)}…${k.slice(-4)}`;
+    if (k.length <= 12) return k ? 'â€¢'.repeat(k.length) : '';
+    return `${k.slice(0, 7)}â€¦${k.slice(-4)}`;
 }
 
 // What the user has actually typed, or null when the field is showing the redacted
 // placeholder (i.e. untouched). The persist-on-close paths must treat null as "no
-// change" — saving the placeholder would overwrite the real key with "sk-ant-…4f2a".
+// change" â€” saving the placeholder would overwrite the real key with "sk-ant-â€¦4f2a".
 function keyFieldValue(input) {
     if (!input || input.dataset.redacted) return null;
     return input.value.trim();
@@ -540,7 +540,7 @@ function showDeepgramStatus(kind, msg) {
 }
 
 // Point tts.js at the chosen voice backend. Called at startup and whenever the
-// setting changes — unlike transcription, this takes effect immediately, because
+// setting changes â€” unlike transcription, this takes effect immediately, because
 // tts.js routes per utterance instead of building a source once.
 function applyTtsProvider() {
     tts.setProvider(storage.loadTtsProvider(), {
@@ -565,7 +565,7 @@ function showAuraStatus(which, kind, msg) {
 
 // The Aura voice the Practice partner speaks in: the user's chosen partner voice,
 // or the first voice in the list that is not the user's own, so the two sides are
-// audibly different out of the box — the same rule as the browser-voice path.
+// audibly different out of the box â€” the same rule as the browser-voice path.
 function pickAuraPartnerVoice(chosen = storage.loadAuraPartnerVoice()) {
     if (chosen) return chosen;
     const own = storage.loadAuraVoice() || ttsDeepgram.DEFAULT_VOICE;
@@ -585,7 +585,7 @@ function showApiKeyStatus(kind, msg) {
 // Format-check the current field value and reflect it under the field. Empty is not
 // "invalid" (that's the missing-key case), so it just clears the line.
 function reflectApiKeyFormat() {
-    // Read through keyFieldValue: a redacted field holds "sk-ant-…4f2a", which
+    // Read through keyFieldValue: a redacted field holds "sk-ant-â€¦4f2a", which
     // would fail the length check and put a red "too short" warning under a
     // perfectly good saved key.
     const input = document.getElementById('apiKeyInput');
@@ -593,14 +593,14 @@ function reflectApiKeyFormat() {
     if (!key) { showApiKeyStatus(null, ''); return; }
     const v = llm.validateKeyFormat(key);
     if (v.ok) { showApiKeyStatus(null, ''); return; }
-    const msg = v.reason === 'prefix' ? "This doesn't look right — a Claude key starts with sk-ant-."
-        : v.reason === 'whitespace' ? 'Remove the spaces — a key is one unbroken string.'
-        : 'This looks too short — check you copied the whole key.';
+    const msg = v.reason === 'prefix' ? "This doesn't look right â€” a Claude key starts with sk-ant-."
+        : v.reason === 'whitespace' ? 'Remove the spaces â€” a key is one unbroken string.'
+        : 'This looks too short â€” check you copied the whole key.';
     showApiKeyStatus('warn', msg);
 }
 
 function handleSpeechResult(liveText) {
-    // Live transcript while the partner is speaking — provisional, not yet
+    // Live transcript while the partner is speaking â€” provisional, not yet
     // confirmed. Confirmation happens implicitly when the user picks a response.
     updatePartnerLive(liveText);
     if (liveText) ui.setTranscriptState('unconfirmed');
@@ -608,16 +608,16 @@ function handleSpeechResult(liveText) {
 
 // The partner produced genuine (non-echo) speech. If they resumed after a pause
 // that already fired a checkpoint, a placeholder may be scheduled or mid-utterance
-// to hold the floor while the user chooses — but the partner is talking again, so
+// to hold the floor while the user chooses â€” but the partner is talking again, so
 // that response window is stale. Cancel the placeholder timer (and any playing
 // placeholder) so nothing is spoken over the partner; the next silence checkpoint
 // re-arms and regenerates from the combined speech.
 function handlePartnerResumed() {
-    // The partner started talking again — abort and reset the placeholder ladder so
+    // The partner started talking again â€” abort and reset the placeholder ladder so
     // nothing is spoken over them (Ken). The next silence checkpoint regenerates from
     // the fuller utterance and re-arms placeholders. Detecting resumption fast matters
     // here; it's caught on the first interim STT result (except while a placeholder is
-    // actively playing, where the echo guard blocks detection until it finishes — a
+    // actively playing, where the echo guard blocks detection until it finishes â€” a
     // known limitation until Phase-2 partner voice recognition).
     placeholders.stop();
 }
@@ -626,7 +626,7 @@ function handlePartnerResumed() {
 // Recording continues; we just take everything collected so far and refresh
 // the response options from it. A later (more complete) period supersedes this.
 // Per the no-confirmation-gate decision (June 15 2026) generation fires here on
-// silence — there is no confirm-the-transcript step.
+// silence â€” there is no confirm-the-transcript step.
 async function handleSilencePeriod(text) {
     currentPartnerText = text;
     updatePartnerLive(text);
@@ -646,7 +646,7 @@ async function handleSilencePeriod(text) {
 
 // Audio uploaded to the paid transcription service, in seconds. Reported per
 // speech burst (the gate closing), so the running total reflects what was actually
-// sent rather than how long the microphone was open — which is the difference the
+// sent rather than how long the microphone was open â€” which is the difference the
 // gating exists to create, and the number the user is billed on.
 function handleSttBilled(seconds) {
     // The source reports its cumulative total for the session; store the delta.
@@ -661,10 +661,10 @@ function handleSttStatus(status, detail) {
 
     if (status === 'error') {
         ui.setStatus(`Microphone error: ${detail}`);
-        // Record it — this also trips the transcript red-wash (via the
+        // Record it â€” this also trips the transcript red-wash (via the
         // 'aac-error-logged' event) so a speech-recognition failure isn't silent now
         // that the status bar is hidden. The common case is 'network': the browser's
-        // speech recognition is cloud-based (Chrome→Google, Edge→Microsoft), so with
+        // speech recognition is cloud-based (Chromeâ†’Google, Edgeâ†’Microsoft), so with
         // no internet it can't transcribe at all and this is the only signal the user gets.
         storage.logError('stt', detail || 'unknown');
     } else if (status === 'listening') {
@@ -675,7 +675,7 @@ function handleSttStatus(status, detail) {
 }
 
 // How long the Start button will wait for storage before going on without it.
-// Generous — this is a stuck-detector, not a performance budget.
+// Generous â€” this is a stuck-detector, not a performance budget.
 const STORAGE_WARMUP_MS = 6000;
 
 // Resolve `promise`, or give up after `ms` and carry on. Resolves rather than
@@ -686,7 +686,7 @@ function withTimeout(promise, ms, label) {
     return Promise.race([
         promise,
         new Promise((resolve) => setTimeout(() => {
-            try { storage.logError('timeout', `${label} did not finish within ${ms}ms — continuing without it`); } catch { /* best-effort */ }
+            try { storage.logError('timeout', `${label} did not finish within ${ms}ms â€” continuing without it`); } catch { /* best-effort */ }
             resolve(null);
         }, ms)),
     ]);
@@ -721,7 +721,7 @@ async function handleStart() {
     // to start audio (see chime.unlock).
     chime.unlock();
     // Same reason, for the paid voice: iOS refuses to start audio outside a user
-    // gesture, and placeholders fire on TIMERS — so without this the app would go
+    // gesture, and placeholders fire on TIMERS â€” so without this the app would go
     // silent exactly when it is trying to hold the floor.
     tts.unlockAudio();
     // Check for a newer deployed version when the session starts. If one is
@@ -733,7 +733,7 @@ async function handleStart() {
             .catch(() => { /* update check is best-effort */ });
     }
     // Warm up storage, but NEVER let it strand the user on the Start screen. Each
-    // call is already try/caught, which covers a rejection — it does not cover a
+    // call is already try/caught, which covers a rejection â€” it does not cover a
     // promise that simply never settles, and a hung storage call here would leave
     // Start looking like a dead button with nothing on screen and nothing logged.
     // The data is a nice-to-have at this moment (every module falls back to its
@@ -743,21 +743,21 @@ async function handleStart() {
     engine.reset();
     ui.showEngineState(engine.getSnapshot());
     // Pre-start screens run in a strict SEQUENCE, never overlapping (Ken, July 18
-    // 2026): Start (greyed screen) → the "What's new" upgrade screen (Close) → the
-    // listening notice (Continue anyway) → the API-key notice (Close) → the
+    // 2026): Start (greyed screen) â†’ the "What's new" upgrade screen (Close) â†’ the
+    // listening notice (Continue anyway) â†’ the API-key notice (Close) â†’ the
     // conversation. Each step hands off to the next only when dismissed, so no two
     // ever sit on top of each other. All three intermediate screens are optional
     // and skipped when not needed.
     //
     // The listening notice comes BEFORE the API-key one because it is about where
     // the user opened the app, and its remedy ("open it in Safari instead") is
-    // something they may want to act on before anything else — whereas the API key
+    // something they may want to act on before anything else â€” whereas the API key
     // can be added at any time from Settings.
     const whatsNewNotes = whatsNew.pending(APP_VERSION);
     if (whatsNewNotes.length) {
-        // Step 2 — upgrade screen. The app has already re-rendered post-update, so
+        // Step 2 â€” upgrade screen. The app has already re-rendered post-update, so
         // the transcript's location is known; the panel fills that region (a
-        // keyguard opening — Spatial Stability). "Close" advances to step 3.
+        // keyguard opening â€” Spatial Stability). "Close" advances to step 3.
         document.getElementById('startBtn').hidden = true;   // panel carries its own "Close"
         whatsNew.renderPanel(APP_VERSION, whatsNewNotes, afterWhatsNew);
     } else {
@@ -771,7 +771,7 @@ async function handleStart() {
 // warning each time they start the app, they will understand that quickly and
 // probably before they create the desktop app via user documentation."
 //
-// It is a property of the platform, not an event — it is identical on every launch
+// It is a property of the platform, not an event â€” it is identical on every launch
 // and there is nothing to act on, so a recurring modal step teaches nothing after
 // the first read and costs a tap forever. The user documentation carries it
 // instead. What survives in code: the verdict still reaches the screen-reader
@@ -781,7 +781,7 @@ function afterWhatsNew() {
     afterListeningNotice();
 }
 
-// Step 4 — the API-key notice, shown only when no key is set (informational: the
+// Step 4 â€” the API-key notice, shown only when no key is set (informational: the
 // app works without one). "Close" enters the conversation; "Add an API key"
 // opens Settings. When a key IS set, skip straight into the conversation.
 function afterListeningNotice() {
@@ -797,7 +797,7 @@ function afterListeningNotice() {
 }
 
 // Leave the pre-start sequence and enter the conversation: hide the start block and
-// un-dim the conversation surface. The end of the Start → upgrade → listening →
+// un-dim the conversation surface. The end of the Start â†’ upgrade â†’ listening â†’
 // API-key chain.
 function finishStart() {
     document.getElementById('startBtn').hidden = false;   // restore for any later start screen
@@ -807,8 +807,8 @@ function finishStart() {
 }
 
 function toggleListening() {
-    chime.unlock();   // a genuine tap — see handleStart
-    // Practice Mode: "Start Listening" does NOT open the mic — it cues the AI
+    chime.unlock();   // a genuine tap â€” see handleStart
+    // Practice Mode: "Start Listening" does NOT open the mic â€” it cues the AI
     // partner to speak, reinforcing the same step (and honoring the same
     // manualListenArmed / auto-resume gate) as a real conversation.
     if (practiceMode) return togglePracticeCue();
@@ -826,15 +826,15 @@ function toggleListening() {
 // Begin a new partner-capture session with a cleared transcript and options.
 function startFreshListening() {
     currentPartnerText = '';
-    setOfferedChoices([]);   // a new partner turn — last turn's choices are gone
+    setOfferedChoices([]);   // a new partner turn â€” last turn's choices are gone
     clearTurnSteering();
-    pendingPartnerHistoryIdx = -1;   // fresh partner turn — not yet promoted to history
+    pendingPartnerHistoryIdx = -1;   // fresh partner turn â€” not yet promoted to history
     generationToken++;
     ui.setLiveTranscript('');
     ui.setTranscriptState('idle');
     ui.clearResponseOptions();
     // Create the transcript file as soon as we enter Listen mode, so it exists and
-    // mirrors the conversation pane from the very start (Ken). Idempotent — a no-op
+    // mirrors the conversation pane from the very start (Ken). Idempotent â€” a no-op
     // if this conversation's log already exists. Fire-and-forget (needs a granted
     // data folder; a no-op without one).
     storage.startConversationLog();
@@ -846,9 +846,9 @@ async function generateOptions(partnerText) {
     const token = ++generationToken;
     const pEpoch = placeholderEpoch;   // if a speaking button fires mid-generation, don't restart placeholders
 
-    // FAST PATH — winding down + a plain farewell reply: re-offer the goodbyes
+    // FAST PATH â€” winding down + a plain farewell reply: re-offer the goodbyes
     // NOW, skipping the AI round-trip, so the user can speak another closing
-    // without waiting (Ken, July 2026 — saving time matters more than saving
+    // without waiting (Ken, July 2026 â€” saving time matters more than saving
     // tokens here). We feed the engine a synthetic CLOSING classification (the
     // same object shape the AI path produces), so all sequence-stack/floor
     // bookkeeping is identical; the AI would have classified this CLOSING and we'd
@@ -869,7 +869,7 @@ async function generateOptions(partnerText) {
         lastPalette = snap.palette;
         // The PARTNER started closing, so offer the decline alongside the goodbyes.
         renderStaticPalette('closing', snap.palette,
-            'Say goodbye — or hold them a moment', { pin: declineClosingCard() });
+            'Say goodbye â€” or hold them a moment', { pin: declineClosingCard() });
         ui.setTranscriptState('ready');
         return;
     }
@@ -882,7 +882,7 @@ async function generateOptions(partnerText) {
     clearTurnSteering();
 
     // Generate from prior committed turns plus the partner's current
-    // (provisional, uncleaned) speech — the transcript is cleaned only once, at
+    // (provisional, uncleaned) speech â€” the transcript is cleaned only once, at
     // the end, when the user selects a response.
     const history = [...conversationHistory, { role: 'partner', text: partnerText }];
 
@@ -902,48 +902,48 @@ async function generateOptions(partnerText) {
         ui.showEngineState(snap);
         lastPalette = snap.palette;
 
-        // Every checkpoint shows a palette now — we no longer suppress on a
+        // Every checkpoint shows a palette now â€” we no longer suppress on a
         // turn_status guess (Ken, July 10 2026). generationOutcome still flags the one
         // real anomaly: the model returned an EMPTY palette when it owed responses
-        // (logs → transcript red-wash + errors.log). Pure logic, unit-tested in
+        // (logs â†’ transcript red-wash + errors.log). Pure logic, unit-tested in
         // conversation-logic.js.
         const outcome = convLogic.generationOutcome(snap);
         if (outcome.anomaly) {
             storage.logError(outcome.anomaly.context, outcome.anomaly.message, { partner: (partnerText || '').slice(0, 200) });
         }
 
-        // The partner themselves closed → offer the goodbyes as a pageable static
+        // The partner themselves closed â†’ offer the goodbyes as a pageable static
         // palette (New N dips further); otherwise the normal response cards.
         if (snap.mode === engine.MODE.PRE_CLOSING_CLOSING) {
-            // Partner-initiated close — pin the decline so they can be held a moment.
+            // Partner-initiated close â€” pin the decline so they can be held a moment.
             renderStaticPalette('closing', snap.palette,
-                'Say goodbye — or hold them a moment', { pin: declineClosingCard() });
+                'Say goodbye â€” or hold them a moment', { pin: declineClosingCard() });
         } else {
-            currentStatic = { kind: null, full: [] };  // AI responses — New N regenerates, not pages
+            currentStatic = { kind: null, full: [] };  // AI responses â€” New N regenerates, not pages
             ui.showResponses(snap.palette, handleResponseSelected);
         }
         ui.setTranscriptState('ready');
-        // A closed set on the table → offer the alternatives as Express Panel chips
+        // A closed set on the table â†’ offer the alternatives as Express Panel chips
         // too, so the user can escalate from a one-tap answer to the full four-way
         // treatment of one of them.
         const offered = (snap.lastClassification && snap.lastClassification.offered_options) || [];
         setOfferedChoices(offered);
-        // Leave the closing branch's own message alone — it set a more specific one
+        // Leave the closing branch's own message alone â€” it set a more specific one
         // above and this line used to overwrite it.
         if (snap.mode === engine.MODE.REPAIR_OF_SELF) {
-            ui.setStatus('Partner didn\'t catch that — choose how to repeat');
+            ui.setStatus('Partner didn\'t catch that â€” choose how to repeat');
         } else if (snap.mode !== engine.MODE.PRE_CLOSING_CLOSING) {
             ui.setStatus(offered.length
                 ? 'Pick one of their options, or say something else'
                 : 'Select a response');
         }
-        // Start the floor-holding placeholders (see shouldPlayPlaceholder — every
+        // Start the floor-holding placeholders (see shouldPlayPlaceholder â€” every
         // turn except a repair-initiator). The first lands initialDelay after the
         // PAUSE; the partner resuming aborts the ladder (handlePartnerResumed); a
         // quick pick cancels it. Question-type turns get a question-flavored
         // acknowledgment ("Good question."); everything else a neutral one.
         // Skip if a speaking button (Say again / Hold on / Wind down) fired while
-        // this generation was in flight — the user has acted, so a placeholder must
+        // this generation was in flight â€” the user has acted, so a placeholder must
         // not start now (it would speak over / right after their statement). The
         // response options above still show; only the placeholder is suppressed.
         if (pEpoch === placeholderEpoch && convLogic.shouldPlayPlaceholder(snap)) {
@@ -955,7 +955,7 @@ async function generateOptions(partnerText) {
         // call so those cards show real, speakable text (re-speak is already in hand).
         if (snap.mode === engine.MODE.REPAIR_OF_SELF) prefetchRepairOptions(token);
 
-        // Record facts the model lacked — drives the questionnaire's "suggested
+        // Record facts the model lacked â€” drives the questionnaire's "suggested
         // next." Open gaps only; recordGaps drops answered/declined keys.
         if (result.missingFacts && result.missingFacts.length) {
             worldview.recordGaps(result.missingFacts, partnerText).catch(() => { /* non-fatal */ });
@@ -967,14 +967,14 @@ async function generateOptions(partnerText) {
         // The AI is unreachable, so it can neither suggest responses NOR tidy the
         // transcript. Keep the partner's raw words visible, marked blue/italic
         // (state 'uncleaned'), so the user can read them and reply with the Express
-        // Panel / "In my own words" — those commit + save on top of this (the red
+        // Panel / "In my own words" â€” those commit + save on top of this (the red
         // wash from logError flags the hiccup). Nothing is committed here: when the
         // user replies, the partner turn is committed uncleaned via
         // commitExchange({cleanup:false}), so the words aren't duplicated and none
         // are lost if the partner keeps talking. Try again retries the same turn.
         updatePartnerLive(partnerText);
         ui.setTranscriptState('uncleaned');
-        ui.showResponseError('AI is unavailable — reply using the Express Panel or “In my own words.” The partner\'s words are shown above.', () => generateOptions(partnerText));
+        ui.showResponseError('AI is unavailable â€” reply using the Express Panel or â€œIn my own words.â€ The partner\'s words are shown above.', () => generateOptions(partnerText));
         ui.setStatus(`Error: ${err.message}`);
     }
 }
@@ -985,7 +985,7 @@ async function handleResponseSelected(response, index) {
     if (response.op) return handleRepairOfSelf(response);
 
     // Opening the conversation: after the user's opening statement is spoken, the
-    // partner is expected to reply, so start recording automatically (Ken) —
+    // partner is expected to reply, so start recording automatically (Ken) â€”
     // regardless of the auto-resume setting, and arm the session so later
     // exchanges can auto-resume too. Captured before selectResponse clears the mode.
     const wasOpener = response.slot === 'OPENER';
@@ -995,11 +995,11 @@ async function handleResponseSelected(response, index) {
 
     placeholders.stop();
     generationToken++; // invalidate any in-flight generation
-    // Capture the partner's speech BEFORE stopping the mic — if they were still
+    // Capture the partner's speech BEFORE stopping the mic â€” if they were still
     // talking (resumed after the options appeared), grab what they'd said, not just
     // the last checkpoint's text.
     const raw = heardPartnerText();
-    // In Practice Mode there is no mic — the partner line lives in currentPartnerText
+    // In Practice Mode there is no mic â€” the partner line lives in currentPartnerText
     // (set when it was fed through the pipeline), and touching STT is unnecessary.
     if (!practiceMode) {
         stt.stopListening();
@@ -1007,7 +1007,7 @@ async function handleResponseSelected(response, index) {
         // stopListening() leaves accumulatedText intact, so without this a follow-up
         // selection whose mic never restarts (e.g. re-offered closings with
         // auto-resume off) would read the SAME partner speech back out of
-        // heardPartnerText() and re-commit it — the last utterance appearing once per
+        // heardPartnerText() and re-commit it â€” the last utterance appearing once per
         // closing pick (Ken, July 10 2026).
         stt.resetTranscript();
     }
@@ -1018,7 +1018,7 @@ async function handleResponseSelected(response, index) {
 
     // Append the exchange to the transcript AFTER it has been spoken (Ken). The
     // now-playing line is suppressed for user statements (speakUserStatement), so
-    // the statement isn't shown as pre-text — it appears once it has been said.
+    // the statement isn't shown as pre-text â€” it appears once it has been said.
     engine.selectResponse(response);
     ui.showEngineState(engine.getSnapshot());
     await commitExchange(raw, response.text, index);
@@ -1038,9 +1038,9 @@ async function handleResponseSelected(response, index) {
             ui.setListenButtonState(false);
         } else {
             manualListenArmed = true;
-            startFreshListening();   // the partner will likely wait — capture their reply
+            startFreshListening();   // the partner will likely wait â€” capture their reply
         }
-        ui.setStatus('Go ahead — say what you wanted to say');
+        ui.setStatus('Go ahead â€” say what you wanted to say');
     } else if (wasOpener) {
         manualListenArmed = true;   // starting a conversation arms auto-resume
         startFreshListening();      // begin capturing the partner now
@@ -1071,7 +1071,7 @@ function offerClosings() {
     renderStaticPalette('closing', snap.palette, 'Say goodbye, or wait for their reply');
 }
 
-// REPAIR-OF-SELF (design §7.2): re-speak verbatim (instant, no LLM), or
+// REPAIR-OF-SELF (design Â§7.2): re-speak verbatim (instant, no LLM), or
 // rephrase / expand the user's last utterance via a round-trip.
 // Pre-generate the rephrase + expand wordings (one combined call) when the partner
 // asks the user to repeat, so their cards show real text instead of a hint (Ken).
@@ -1110,7 +1110,7 @@ async function handleRepairOfSelf(response) {
         if (response.text && response.text.trim()) {
             text = response.text.trim();
         } else {
-            ui.setStatus(response.op === 'expand' ? 'Expanding…' : 'Rephrasing…');
+            ui.setStatus(response.op === 'expand' ? 'Expandingâ€¦' : 'Rephrasingâ€¦');
             try {
                 text = await llm.repairSelf(engine.getLastUserUtterance(), response.op, conversationHistory);
             } catch (err) {
@@ -1149,31 +1149,31 @@ async function handleRepairOfSelf(response) {
 
 // Commit the partner turn (it feeds context for future turns) followed by the
 // user's response. The user's spoken words are rendered to the transcript
-// IMMEDIATELY (Ken, June 29 2026 — they were lagging several seconds behind the
+// IMMEDIATELY (Ken, June 29 2026 â€” they were lagging several seconds behind the
 // speech because we awaited the partner-transcript cleanup round-trip first); the
 // partner turn is shown with its raw text at once and quietly upgraded to the
 // cleaned text when that round-trip returns. `raw` may be empty (openers /
 // closers have no captured partner turn).
 //
 // `opts.cleanup` (default true): run the AI transcript-cleanup pass on the partner
-// text. Set FALSE for the interruption case — when the user cuts the partner off
+// text. Set FALSE for the interruption case â€” when the user cuts the partner off
 // with an instant statement, we just record what we heard verbatim; there's no
 // completed utterance to clean and no point spending an AI call on a fragment (Ken).
 async function commitExchange(raw, userText, index, opts = {}) {
     const { cleanup = true } = opts;
-    // The user has taken the floor, so the partner's turn — and any choices it put
-    // on the table, and any steering of it — is done. Shared by every path that
+    // The user has taken the floor, so the partner's turn â€” and any choices it put
+    // on the table, and any steering of it â€” is done. Shared by every path that
     // commits a user turn (response pick, Express phrase, composer, repair-of-self).
     setOfferedChoices([]);
     clearTurnSteering();
-    // Snapshot the history BEFORE this exchange — that's the context the cleanup
+    // Snapshot the history BEFORE this exchange â€” that's the context the cleanup
     // pass should see (it shouldn't include the turn it's cleaning).
     const cleanupContext = [...conversationHistory];
 
     let partnerIdx = -1;
     if (raw) {
         // cleanup:false means the AI never tidied this turn (interruption fragment,
-        // or AI unreachable) — flag it so the transcript renders it raw (blue/italic).
+        // or AI unreachable) â€” flag it so the transcript renders it raw (blue/italic).
         // placePartnerTurn updates the entry in place if it was already promoted by a
         // mid-turn user command (so it stays before that command), else appends it.
         partnerIdx = placePartnerTurn(raw, !cleanup);
@@ -1190,7 +1190,7 @@ async function commitExchange(raw, userText, index, opts = {}) {
         // list; a free-composed utterance (index -1) was not picked from a
         // palette, so don't log the (possibly stale) last palette against it.
         allOptions: index >= 0 ? lastPalette.map(m => m.text).filter(Boolean) : [],
-        // Stamp the situation at this turn (who, how the user felt) — null when off.
+        // Stamp the situation at this turn (who, how the user felt) â€” null when off.
         partner: partnerStamp(),
         feeling: feelingStamp(),
     };
@@ -1198,7 +1198,7 @@ async function commitExchange(raw, userText, index, opts = {}) {
     if (raw && cleanup) {
         // The partner's raw turn is already in the transcript (written at each
         // pause). Detach it so a resumed partner turn can't overwrite it, write the
-        // USER turn to the transcript immediately (Ken — no longer waiting on the
+        // USER turn to the transcript immediately (Ken â€” no longer waiting on the
         // cleanup round-trip), then clean the partner text in the background and
         // finalize its entry in place (fills the cleaned line) when it returns.
         const stamp = partnerStamp();
@@ -1217,7 +1217,7 @@ async function commitExchange(raw, userText, index, opts = {}) {
     } else if (raw) {
         // Interruption case: record the partner's raw heard text as-is, no AI
         // cleanup (Ken). Finalize the partner entry (its cleaned line = raw), THEN
-        // write the user turn, so the transcript keeps partner-then-user order —
+        // write the user turn, so the transcript keeps partner-then-user order â€”
         // whether or not a pause had already written the partner line.
         const stamp = partnerStamp();
         const partnerHandle = storage.detachPendingPartnerTurn();
@@ -1231,36 +1231,36 @@ async function commitExchange(raw, userText, index, opts = {}) {
 }
 
 // Auto-resume only if the user has manually started listening this session (and
-// hasn't since manually stopped) — see manualListenArmed.
+// hasn't since manually stopped) â€” see manualListenArmed.
 function resumeOrIdle() {
     if (practiceMode) return practiceResumeOrIdle();
     if (manualListenArmed && storage.loadAutoRelisten()) {
         startFreshListening();
     } else {
         ui.setTranscriptState('idle');
-        ui.setStatus('Ready — tap Listen for the next exchange');
+        ui.setStatus('Ready â€” tap Listen for the next exchange');
     }
 }
 
-// --- Practice Mode (§8) --------------------------------------------------------
+// --- Practice Mode (Â§8) --------------------------------------------------------
 // The AI plays the communication partner. "Start Listening" cues the partner (no
 // mic); the partner's line is spoken in a distinct voice and fed through the SAME
 // generation pipeline as a real utterance, so the user picks responses exactly as
 // in a real conversation. The listen gate (manualListenArmed + auto-resume) is the
 // real one, so practice rehearses the actual discipline.
 //
-// Practice is entered and left from Settings → Practice (Ken, July 2026), not the
+// Practice is entered and left from Settings â†’ Practice (Ken, July 2026), not the
 // pre-start screen: it's a mode you drop into and out of from the conversation
 // screen, so leaving practice returns there rather than to the Start screen.
 
-// The voice the AI partner speaks in: the user's chosen partner voice, or — if
-// none set — the first available voice that isn't the user's own, so it's audibly
+// The voice the AI partner speaks in: the user's chosen partner voice, or â€” if
+// none set â€” the first available voice that isn't the user's own, so it's audibly
 // distinct out of the box.
 // `chosen` is passed in by the Settings Test button so it can resolve the value
 // currently showing in the select rather than the last-saved one.
 function pickPartnerVoice(chosen = storage.loadPartnerVoice()) {
     if (chosen) return chosen;
-    // Auto never lands on a novelty voice, whatever the user's show/hide choice —
+    // Auto never lands on a novelty voice, whatever the user's show/hide choice â€”
     // that setting governs what they may CHOOSE, not what the app picks for them.
     // Before this, on an iPad, every en-US voice except the user's own was a gag
     // voice, so the practice partner spoke as Albert or Zarvox.
@@ -1269,7 +1269,7 @@ function pickPartnerVoice(chosen = storage.loadPartnerVoice()) {
 
     // Resolve what the user's voice ACTUALLY is before excluding it. When Voice is
     // left on "Browser default" the app holds no URI, and the earlier version
-    // excluded "no URI" — which excludes nothing, so it returned the first voice in
+    // excluded "no URI" â€” which excludes nothing, so it returned the first voice in
     // the list. That is precisely the voice the browser default resolves to, so the
     // partner came out sounding identical to the user (Ken, July 31 2026, on the
     // iPad). `default` is the flag that marks it; the first voice is the fallback
@@ -1285,7 +1285,7 @@ function pickPartnerVoice(chosen = storage.loadPartnerVoice()) {
 
     // Prefer a different voice IN THE SAME LANGUAGE. "Any other voice" is fine with
     // the three or four a desktop offers, but an iPad carries dozens across many
-    // languages, where the first non-match can easily be another language — audibly
+    // languages, where the first non-match can easily be another language â€” audibly
     // distinct and completely unintelligible, which is not the point.
     const different = v => v.voiceURI !== own.voiceURI;
     const pick = voices.find(v => different(v) && v.lang === own.lang)
@@ -1293,7 +1293,7 @@ function pickPartnerVoice(chosen = storage.loadPartnerVoice()) {
     return pick ? pick.voiceURI : undefined;
 }
 
-// Settings → Practice tab. Three states: practice already running (show which
+// Settings â†’ Practice tab. Three states: practice already running (show which
 // scenario + the way out), no API key (practice needs the AI for BOTH the partner
 // and the response suggestions), or the scenario list.
 function renderPracticePanel() {
@@ -1320,7 +1320,7 @@ function renderPracticePanel() {
     if (!hasKey) {
         const msg = document.createElement('p');
         msg.className = 'practice-note';
-        msg.textContent = 'Practice needs a Claude API key — the AI plays the other person and suggests your responses. Add one on the General tab, then come back.';
+        msg.textContent = 'Practice needs a Claude API key â€” the AI plays the other person and suggests your responses. Add one on the General tab, then come back.';
         const goBtn = mkButton('Go to the General tab', 'practice-add-key', () => {
             activateSettingsTab(document.querySelector('#settingsTabs .settings-tab[data-tab="general"]'), true);
         });
@@ -1366,7 +1366,7 @@ function mkButton(label, cls, onClick) {
 
 // Enter Practice Mode with the chosen scenario: close Settings, start a fresh
 // conversation on the real conversation screen, and wait for the user to tap Start
-// Listening to cue the partner (never auto-plays — reinforces the step).
+// Listening to cue the partner (never auto-plays â€” reinforces the step).
 async function startPractice(scenario) {
     practiceMode = true;
     practiceScenario = scenario;
@@ -1376,7 +1376,7 @@ async function startPractice(scenario) {
     isListening = false;
     manualListenArmed = false;
     ui.setListenButtonState(false);
-    applyListenAvailability();   // practice needs no mic — re-enable Listen if capture is unavailable
+    applyListenAvailability();   // practice needs no mic â€” re-enable Listen if capture is unavailable
     ui.setStatus(`Practice: ${scenario.title}. Tap Start Listening to hear the other person.`);
 }
 
@@ -1394,7 +1394,7 @@ async function advancePracticePartner() {
     const token = ++generationToken;   // aborts if the user ends/pauses mid-generation
     isListening = true;
     ui.setListenButtonState(true);     // red pulse + chime (rehearse the "listening" feel)
-    ui.setStatus('The other person is speaking…');
+    ui.setStatus('The other person is speakingâ€¦');
     let line;
     try {
         line = await llm.generatePartnerUtterance(practiceScenario, conversationHistory);
@@ -1428,7 +1428,7 @@ function togglePracticeCue() {
         placeholders.stop();
         tts.cancel();
         ui.setListenButtonState(false);
-        ui.setStatus('Paused — tap Start Listening to continue.');
+        ui.setStatus('Paused â€” tap Start Listening to continue.');
     } else {
         manualListenArmed = true;      // arm auto-resume for the rest of the session
         advancePracticePartner();
@@ -1436,7 +1436,7 @@ function togglePracticeCue() {
 }
 
 // After the user responds in practice, either auto-cue the next partner turn (if
-// auto-resume is armed) or wait for the user to tap Start Listening — the SAME gate
+// auto-resume is armed) or wait for the user to tap Start Listening â€” the SAME gate
 // as a real conversation.
 function practiceResumeOrIdle() {
     if (manualListenArmed && storage.loadAutoRelisten()) {
@@ -1445,11 +1445,11 @@ function practiceResumeOrIdle() {
         isListening = false;
         ui.setTranscriptState('idle');
         ui.setListenButtonState(false);
-        ui.setStatus('Your turn is done — tap Start Listening to hear their reply.');
+        ui.setStatus('Your turn is done â€” tap Start Listening to hear their reply.');
     }
 }
 
-// --- Persistent override controls (design §5.1) ---
+// --- Persistent override controls (design Â§5.1) ---
 
 // Fully clear and TERMINATE the current conversation (Ken): stop audio +
 // listening, invalidate in-flight generation, drop the uncommitted partner turn,
@@ -1465,13 +1465,13 @@ async function terminateConversation() {
     // Capture the partner's pending (uncommitted) turn BEFORE we discard the STT
     // buffer / history. If the partner spoke but the user ended / restarted before
     // choosing a reply, commit their words to THIS conversation instead of dropping
-    // them (Ken, July 12 2026). Grab the situation stamp now too — it's captured
+    // them (Ken, July 12 2026). Grab the situation stamp now too â€” it's captured
     // before clearInfluencers() (End's caller) can null the active Partner.
     const pendingRaw = heardPartnerText();
     const pendingStamp = partnerStamp();
     // stopListening() deliberately keeps accumulatedText (it survives restarts across
     // silences), so discard the partner's captured speech explicitly now that we've
-    // grabbed it — otherwise it would leak into the next conversation: heardPartnerText()
+    // grabbed it â€” otherwise it would leak into the next conversation: heardPartnerText()
     // would read the stale buffer when the user picks the next opener, and it would be
     // committed at the top of the new conversation though nobody spoke.
     stt.resetTranscript();
@@ -1494,7 +1494,7 @@ async function terminateConversation() {
     // Finalize the pending partner turn (if any) in the CURRENT <id>.json, THEN
     // reset the id. Ordered/awaited so the write lands in this conversation's file,
     // not the next one's, and done BEFORE the privacy re-seed below so it uses THIS
-    // conversation's save setting. Finalized raw (no AI cleanup round-trip) — a
+    // conversation's save setting. Finalized raw (no AI cleanup round-trip) â€” a
     // dangling turn with no user reply isn't a completed exchange, and raw keeps
     // the flush fast so it can't race the id reset. `heardPartnerText()` may hold
     // speech captured since the last pause, so prefer it over the pending entry's
@@ -1506,7 +1506,7 @@ async function terminateConversation() {
     }
     storage.resetConversationId();       // next conversation gets a fresh id (error-log correlation)
 
-    // Re-seed conversation privacy from the Settings default — a per-conversation
+    // Re-seed conversation privacy from the Settings default â€” a per-conversation
     // "Don't save" choice does not carry into the next conversation (Ken). After the
     // flush above, so the pending turn is written under this conversation's setting.
     conversationPrivate = storage.loadNoSaveDefault();
@@ -1515,7 +1515,7 @@ async function terminateConversation() {
 
 // How many opener / wind-down / closing cards the response footprint can show: 8
 // with the 2-per-category (8-card) setting, otherwise 4. These are flat lists (one
-// per card), so we cap the palette to this before showing it (Ken — 8-card mode
+// per card), so we cap the palette to this before showing it (Ken â€” 8-card mode
 // fills all 8 with conversation starters).
 function conversationPaletteCap() {
     return storage.loadResponsesPerCategory() === 2 ? 8 : 4;
@@ -1560,7 +1560,7 @@ function renderStaticPalette(kind, full, statusMsg, { advance = false, pin = [] 
     if (statusMsg) ui.setStatus(statusMsg);
 }
 
-// The "Actually, before you go —" card, offered when the PARTNER starts closing.
+// The "Actually, before you go â€”" card, offered when the PARTNER starts closing.
 // Selecting it speaks the phrase and takes the floor like any other response, so
 // the user holds the conversation open and can then say the thing itself.
 function declineClosingCard() {
@@ -1586,7 +1586,7 @@ function showConversationPalette(palette, statusMsg) {
     if (statusMsg) ui.setStatus(statusMsg);
 }
 
-// Start conversation — terminate the current one (clear window + cards), then
+// Start conversation â€” terminate the current one (clear window + cards), then
 // open a fresh conversation in INITIATING mode with the openers.
 async function handleInitiate() {
     await terminateConversation();
@@ -1620,8 +1620,8 @@ function applyControlPhrases() {
 function logSpokenUserTurn(text) {
     if (!text) return;
     // A live partner turn must sit BEFORE this user turn in both the pane and the
-    // transcript (Ken — they mirror). Write the partner's heard text to the
-    // transcript (a no-op/overwrite if a pause already wrote it — it does NOT
+    // transcript (Ken â€” they mirror). Write the partner's heard text to the
+    // transcript (a no-op/overwrite if a pause already wrote it â€” it does NOT
     // finalize the turn, which the partner still holds), and promote it into the
     // pane history, before appending this user turn.
     const partnerRaw = heardPartnerText();
@@ -1632,12 +1632,12 @@ function logSpokenUserTurn(text) {
     storage.logUserResponse({ selectedText: text, selectedIndex: -1, allOptions: [] });
 }
 
-// Say again — re-speak the user's last utterance verbatim. Instant, no LLM.
+// Say again â€” re-speak the user's last utterance verbatim. Instant, no LLM.
 async function handleSayAgain() {
     const text = engine.getLastUserUtterance();
     if (!text) { ui.setStatus('Nothing to repeat yet'); return; }
     // Abort placeholders instantly AND stop an in-flight generation from restarting
-    // one (Ken) — without discarding the partner turn's response options.
+    // one (Ken) â€” without discarding the partner turn's response options.
     abortPlaceholders();
     ui.setStatus('Speaking...');
     await speakUserStatement(text);
@@ -1645,11 +1645,11 @@ async function handleSayAgain() {
     ui.setStatus(isListening ? 'Listening...' : 'Ready');
 }
 
-// Hold on — manually fire a floor-holding statement. Instant.
+// Hold on â€” manually fire a floor-holding statement. Instant.
 async function handleHoldOn() {
     abortPlaceholders();   // instant abort + no in-flight generation restart (options kept)
-    // User-editable (Settings → Controls). The default is softened from "Hold on,
-    // let me think." — imperative phrasing reads as curt through the flat built-in
+    // User-editable (Settings â†’ Controls). The default is softened from "Hold on,
+    // let me think." â€” imperative phrasing reads as curt through the flat built-in
     // voices (Ken, June 18 2026), and the leading "Hmm," (v0.3.14) was dropped
     // (June 19 2026) as the built-in voices render it unintelligibly.
     const text = controlPhrases.getPhrases().holdOn;
@@ -1659,23 +1659,23 @@ async function handleHoldOn() {
     ui.setStatus(isListening ? 'Listening...' : 'Ready');
 }
 
-// "Ask them to repeat" (formerly "Pardon?") — the "I didn't catch what the partner
+// "Ask them to repeat" (formerly "Pardon?") â€” the "I didn't catch what the partner
 // said" control. The user shouldn't have to reason about sequence-stack mechanics,
 // so this one action does what the misheard-partner case needs: it (1) asks the
 // partner to repeat, and (2) pushes a repair sequence so the partner's re-speak
 // resolves correctly against the original question. engine.pardon() dedups, so
 // tapping it again before the re-speak doesn't stack a second repair.
 //
-// It does NOT throw away the partner's transcript (Ken, July 12 2026 — reverses the
+// It does NOT throw away the partner's transcript (Ken, July 12 2026 â€” reverses the
 // v0.5.32 "drop the last statement" behavior): what the partner already said is KEPT
 // as its own committed turn. But their RE-SPEAK is a SEPARATE new turn AFTER our
-// pardon statement — NOT appended to the earlier one (Ken, July 13 2026, refines the
+// pardon statement â€” NOT appended to the earlier one (Ken, July 13 2026, refines the
 // v0.5.87 "appends to it" behavior, which mis-merged two partner statements and put
 // the re-speak before the pardon). The AI still sees everything as ordered turns.
 async function handlePardon() {
     placeholders.stop();
     generationToken++;            // invalidate any in-flight generation on the garbled capture
-    const snap = engine.pardon(); // push REPAIR* (dedups); floor → partner
+    const snap = engine.pardon(); // push REPAIR* (dedups); floor â†’ partner
     // Show what the partner already said, then commit it (via logSpokenUserTurn) and
     // speak the pardon.
     const kept = heardPartnerText();
@@ -1683,12 +1683,12 @@ async function handlePardon() {
     ui.showEngineState(snap);
     updatePartnerLive(kept);
     ui.clearResponseOptions();
-    const text = controlPhrases.getPhrases().pardon; // user-editable (Settings → Controls)
+    const text = controlPhrases.getPhrases().pardon; // user-editable (Settings â†’ Controls)
     ui.setStatus('Speaking...');
     await speakUserStatement(text);
     logSpokenUserTurn(text);          // commits the partner's kept turn, then the pardon after it
     // Finalize the partner's kept turn and RESET capture so their re-speak becomes a
-    // fresh turn after this pardon — not appended to the earlier one.
+    // fresh turn after this pardon â€” not appended to the earlier one.
     finalizePendingPartnerTurn();
     stt.resetTranscript();
     currentPartnerText = '';
@@ -1697,12 +1697,12 @@ async function handlePardon() {
     ui.setStatus(isListening ? 'Listening...' : 'Ready');
 }
 
-// "Show me different options" — the user finds the offered palette not quite
+// "Show me different options" â€” the user finds the offered palette not quite
 // right and wants a fresh set for the SAME partner turn. Re-runs generation with
 // the rejected options passed as `avoid`, then refreshes ONLY the palette
-// (engine.refreshPalette) — the sequence stack / mode / floor are unchanged, so
+// (engine.refreshPalette) â€” the sequence stack / mode / floor are unchanged, so
 // we deliberately do NOT re-ingest the classification (that would push a
-// duplicate FPP). Whole-palette regenerate (not per-response) — see CLAUDE.md to-do.
+// duplicate FPP). Whole-palette regenerate (not per-response) â€” see CLAUDE.md to-do.
 async function handleRegenerate() {
     // If a predefined static palette is showing (openers / wind-downs / closings),
     // "New N" dips to the next page of that set rather than calling the AI (Ken,
@@ -1725,7 +1725,7 @@ async function handleRegenerate() {
     const history = [...conversationHistory, { role: 'partner', text: currentPartnerText }];
 
     try {
-        // Carry this turn's steering through — otherwise "New N" silently discards
+        // Carry this turn's steering through â€” otherwise "New N" silently discards
         // the choice the user tapped (or the guidance they typed) and comes back
         // with the unsteered palette.
         const result = await llm.generateResponses(history, engine.buildRequestContext(), {
@@ -1750,15 +1750,15 @@ async function handleRegenerate() {
     }
 }
 
-// "Reframe" — the second verb on the "In your own words" composer (Ken, June 21
+// "Reframe" â€” the second verb on the "In your own words" composer (Ken, June 21
 // 2026). Instead of speaking the box text verbatim (Speak), hand it to the AI as
 // steering/context and regenerate the suggested responses around it for the SAME
 // partner turn. A *guided* regenerate: same engine.refreshPalette seam as
-// handleRegenerate (stack / mode / floor untouched — we do NOT re-ingest the
+// handleRegenerate (stack / mode / floor untouched â€” we do NOT re-ingest the
 // classification, which would push a duplicate FPP). One-shot: the steer applies
 // to this regeneration only and the box is CLEARED on success, so an empty box
 // reliably means "nothing pending" (a lingering value would read as a persistent
-// steer — that sticky/conversation-goal version is deferred to the Goals
+// steer â€” that sticky/conversation-goal version is deferred to the Goals
 // subsystem). Guarded to an active partner turn with a palette, like regenerate.
 // Drop this turn's steering. Called wherever the partner turn being steered ends
 // or is replaced, so a steer can never leak into the next turn's options.
@@ -1777,7 +1777,7 @@ function setOfferedChoices(options) {
 
 // The user tapped a choice chip: they've decided on one of the partner's
 // alternatives and want the responses built around it. This is a guided
-// regenerate — the SAME seam Reframe uses (refreshPalette leaves the sequence
+// regenerate â€” the SAME seam Reframe uses (refreshPalette leaves the sequence
 // stack, mode and floor untouched, so no duplicate FPP), with the picked
 // alternative as the steer. The chips stay up: a second thought is one tap away.
 async function handleChoiceChip(chip) {
@@ -1785,7 +1785,7 @@ async function handleChoiceChip(chip) {
     if (!pick || !currentPartnerText) return;
 
     const token = ++generationToken;
-    abortPlaceholders();   // the user has acted — nothing may speak over the result
+    abortPlaceholders();   // the user has acted â€” nothing may speak over the result
     activeSteer.focusChoice = pick;   // "New N" must keep answering with this choice
     llm.setWorldviewBlock(worldview.buildBlock());
     llm.setRelationshipsBlock(relationships.buildBlock());
@@ -1802,9 +1802,9 @@ async function handleChoiceChip(chip) {
         const snap = engine.refreshPalette(result.responses);
         ui.showEngineState(snap);
         lastPalette = snap.palette;
-        currentStatic = { kind: null, full: [] };  // AI responses — New N regenerates, not pages
+        currentStatic = { kind: null, full: [] };  // AI responses â€” New N regenerates, not pages
         ui.showResponses(snap.palette, handleResponseSelected);
-        ui.setStatus(`Ways to say "${pick}" — or tap another choice`);
+        ui.setStatus(`Ways to say "${pick}" â€” or tap another choice`);
     } catch (err) {
         if (token !== generationToken) return;
         storage.logError('choiceChip', err.message, { partner: (currentPartnerText || '').slice(0, 200) });
@@ -1829,15 +1829,15 @@ async function handleReframe() {
     llm.setSituationBlock(buildSituationBlock());
 
     // Two modes on the one button, chosen by whether a partner turn is on the floor:
-    //  • Partner turn active → rework the SUGGESTED RESPONSES around the steer (a
-    //    guided regenerate — reply to the partner, taking the input into account).
-    //  • No partner turn (the user just responded / holds the floor) → the user
+    //  â€¢ Partner turn active â†’ rework the SUGGESTED RESPONSES around the steer (a
+    //    guided regenerate â€” reply to the partner, taking the input into account).
+    //  â€¢ No partner turn (the user just responded / holds the floor) â†’ the user
     //    wants to LEAD: generate STATEMENTS that take the conversation where they
     //    want to go (Ken), not replies to a partner.
     if (currentPartnerText && lastPalette.length) {
         ui.setStatus('Reworking options with your input...');
         // Remember it for this turn so "New N" reworks the options with the same
-        // guidance instead of discarding it (Ken). Still one-shot ACROSS turns —
+        // guidance instead of discarding it (Ken). Still one-shot ACROSS turns â€”
         // it dies with the partner turn, and the box is cleared either way.
         activeSteer.steer = steer;
         const history = [...conversationHistory, { role: 'partner', text: currentPartnerText }];
@@ -1875,14 +1875,14 @@ async function handleReframe() {
     }
 }
 
-// Wind down — enter PRE-CLOSING and offer the WIND-DOWN statements (intent to end,
+// Wind down â€” enter PRE-CLOSING and offer the WIND-DOWN statements (intent to end,
 // not a goodbye). Selecting one auto-offers the closings. If the partner doesn't
 // reciprocate, pressing Wind down again dips to the next page of wind-downs (Ken,
-// July 2026) — the first press of a conversation shows page 0, each re-press advances.
+// July 2026) â€” the first press of a conversation shows page 0, each re-press advances.
 function handleWindDown() {
     placeholders.stop();
     // Invalidate any in-flight generation so it can't overwrite the wind-downs with
-    // response options — or restart a placeholder — after the user chose to wind down.
+    // response options â€” or restart a placeholder â€” after the user chose to wind down.
     generationToken++;
     const snap = engine.windDown();
     ui.showEngineState(snap);
@@ -1890,12 +1890,12 @@ function handleWindDown() {
     windDownShown = true;
 }
 
-// End conversation — hard terminate (Ken, June 18 2026). Tears everything down
+// End conversation â€” hard terminate (Ken, June 18 2026). Tears everything down
 // and returns the engine to STANDBY: stop the placeholder ladder, cancel any speech,
 // stop listening, invalidate in-flight generation, commit the partner's pending
 // (uncommitted) turn to the log if they spoke without a reply (Ken, July 12 2026),
 // clear the palette/transcript, and reset the engine (empty stack, floor OPEN). No
-// danger-confirm — it's the "hang up" control, and the conversation history is
+// danger-confirm â€” it's the "hang up" control, and the conversation history is
 // already logged exchange-by-exchange.
 async function handleEndConversation() {
     const wasPractice = practiceMode;
@@ -1903,21 +1903,21 @@ async function handleEndConversation() {
     // to real-conversation behavior.
     practiceMode = false;
     practiceScenario = null;
-    applyListenAvailability();   // back to a real conversation — Listen follows capture again
+    applyListenAvailability();   // back to a real conversation â€” Listen follows capture again
     await terminateConversation();
-    // Ending a conversation clears the situation influencers — the next person /
+    // Ending a conversation clears the situation influencers â€” the next person /
     // mood shouldn't inherit this conversation's Partner & Feeling selections.
     // (Done here, NOT in the shared terminateConversation, because Start
     // conversation reuses that and still needs the active Partner to personalize
     // its openers.)
     clearInfluencers();
     if (wasPractice) {
-        // Practice is entered from Settings → Practice, so leaving it drops straight
-        // back to the standard conversation screen (Ken, July 2026) — the mic-backed
+        // Practice is entered from Settings â†’ Practice, so leaving it drops straight
+        // back to the standard conversation screen (Ken, July 2026) â€” the mic-backed
         // conversation is ready to go, no start screen in between.
-        ui.setStatus('Practice ended — back to a normal conversation');
+        ui.setStatus('Practice ended â€” back to a normal conversation');
     } else {
-        ui.setStatus('Conversation ended — tap Start conversation or Listen to begin again');
+        ui.setStatus('Conversation ended â€” tap Start conversation or Listen to begin again');
     }
 }
 
@@ -1929,7 +1929,7 @@ function clearInfluencers() {
     renderExpressPanel();
 }
 
-// The user is TAKING THE FLOOR with their own words — shared by the composer's
+// The user is TAKING THE FLOOR with their own words â€” shared by the composer's
 // Speak and by an Express Panel phrase. It behaves like selecting a response: terminates
 // the partner's open turn (engine.selectResponse pops the partner FPP), stops
 // recording, commits the exchange to history, and resumes listening iff
@@ -1966,7 +1966,7 @@ function openComposer() {
     ui.clearComposer();
     ui.showComposerOverlay();
     // Summon the keyboard explicitly rather than relying on the textarea's
-    // focusin side effect — that event can be swallowed (e.g. after an Express
+    // focusin side effect â€” that event can be swallowed (e.g. after an Express
     // phrase auto-resumes listening, or when the field already holds focus), so
     // the composer could open with no keyboard. showFor() is a no-op in physical
     // mode. (Ken, July 2026.)
@@ -1975,7 +1975,7 @@ function openComposer() {
 }
 
 // Close the modal (Speak / Reframe / Cancel all do this): dismiss the input box
-// AND the keyboard. The keyboard is dismissed explicitly — blurring the textarea
+// AND the keyboard. The keyboard is dismissed explicitly â€” blurring the textarea
 // alone won't reliably hide it, because Speak/Reframe/Cancel are "keep-open"
 // controls (so their tap doesn't trip the focusout-hide before the handler runs).
 function closeComposer() {
@@ -2012,7 +2012,7 @@ function expressLayoutRows() {
 }
 
 function renderExpressPanel() {
-    applyButtonSizing();   // the active layout may have changed → refresh --kbd-rows/--kbd-cols
+    applyButtonSizing();   // the active layout may have changed â†’ refresh --kbd-rows/--kbd-cols
     // The user-editable, ordered typed-item list (phrase / partner / feeling).
     ui.renderExpressPanel(expressLayoutRows(), expressPanel.getItems(), {
         categories: expressItems.CATEGORIES,
@@ -2021,7 +2021,7 @@ function renderExpressPanel() {
         // closed set on the table; they sit blank the rest of the time.
         // Gated on the partner's turn still being open: a chip steers a response TO
         // that turn, so once it's consumed the chips must not linger. Belt and
-        // braces with the explicit clears at each turn boundary — any path that
+        // braces with the explicit clears at each turn boundary â€” any path that
         // ends a turn without clearing still can't leave a dead chip on screen.
         // Capped so a long list can't push most of the phrase panel off the end.
         choiceChips: (currentPartnerText ? offeredChoices : [])
@@ -2047,12 +2047,12 @@ function renderExpressPanel() {
 function buildSituationBlock() {
     const lines = [];
     // Practice Mode: the response-generation call goes through the normal path and
-    // otherwise has NO idea it's a role-play — so ground it in the scenario, or it
+    // otherwise has NO idea it's a role-play â€” so ground it in the scenario, or it
     // suggests responses that don't fit the setting (e.g. root beer at a coffee
     // shop). The partner-authoring call already gets the full persona; this grounds
     // the USER's suggested responses to the same setting.
     if (practiceMode && practiceScenario) {
-        lines.push(`This is a PRACTICE role-play. The situation is: ${practiceScenario.title} (${practiceScenario.register}). Keep every suggested response realistic and appropriate to THIS setting — only refer to things that would actually make sense here.`);
+        lines.push(`This is a PRACTICE role-play. The situation is: ${practiceScenario.title} (${practiceScenario.register}). Keep every suggested response realistic and appropriate to THIS setting â€” only refer to things that would actually make sense here.`);
     }
     if (activePartner) {
         const label = (activePartner.nickname || activePartner.name || '').trim();
@@ -2071,7 +2071,7 @@ function buildSituationBlock() {
 // relationship graph, plus the display label; `feeling` keeps id + text. Each is
 // null when its toggle is off.
 function partnerStamp() {
-    // In Practice Mode the "partner" is the AI playing a scenario — flag every turn
+    // In Practice Mode the "partner" is the AI playing a scenario â€” flag every turn
     // so the saved conversation is reviewable but clearly distinguishable from a real
     // one (Ken: saved, flagged as practice).
     if (practiceMode && practiceScenario) {
@@ -2091,7 +2091,7 @@ function feelingStamp() {
 // Partner toggle: one active at a time. Tapping the active one turns it off;
 // tapping another switches. Re-renders the panel to reflect the selection. The
 // effect is applied at conversation open (personalized openers) and each turn
-// (situation block) — no immediate generation needed here.
+// (situation block) â€” no immediate generation needed here.
 function handleTogglePartner(item) {
     activePartner = (activePartner && activePartner.id === item.id) ? null : item;
     renderExpressPanel();
@@ -2106,7 +2106,7 @@ function handleToggleFeeling(item) {
 }
 
 // Body classes that place the dock area (Express Panel / keyboard) on the
-// chosen edge with the keyboard's real-estate, and select the 2×2 (side) vs 1×4
+// chosen edge with the keyboard's real-estate, and select the 2Ã—2 (side) vs 1Ã—4
 // (bottom) response-card arrangement. Kept in sync with the keyboard dock choice.
 function applyConversationDockClasses() {
     const dock = storage.loadKeyboardDock();
@@ -2120,7 +2120,7 @@ function applyConversationDockClasses() {
 
 // --- Conversation layout solver (Ken, June 30 2026) -------------------------
 // Three unitless sliders drive the conversation layout: BUTTON SIZE (default
-// middle — slide right to GROW buttons in their unconstrained direction, left
+// middle â€” slide right to GROW buttons in their unconstrained direction, left
 // to SHRINK them and fill with gap), GAP SIZE, and MINIMUM GAP (a hard floor on
 // the gap; precedence over button size). The % budget (v0.5.46/0.5.48) is the
 // slider's MIDDLE; growth/shrink perturb it. This is past CSS clamp(), so JS
@@ -2129,9 +2129,9 @@ function applyConversationDockClasses() {
 // default; its solver is the next step). Under-specified bits (freed-space
 // split, exact shrink curve, calibration of the slider's right end to the true
 // max-growth point) are reasonable choices here, to react to.
-const GAP_MAX_REM = 1.4, MINGAP_MAX_REM = 1.4;   // slider 0–100 → 0..max rem
-const DOCKSEP_MAX_REM = 4.0;      // keyboard-separation slider 0–100 → 0..4rem
-const TRANSCRIPTSEP_MAX_REM = 4.0; // transcript-separation slider 0–100 → 0..4rem
+const GAP_MAX_REM = 1.4, MINGAP_MAX_REM = 1.4;   // slider 0â€“100 â†’ 0..max rem
+const DOCKSEP_MAX_REM = 4.0;      // keyboard-separation slider 0â€“100 â†’ 0..4rem
+const TRANSCRIPTSEP_MAX_REM = 4.0; // transcript-separation slider 0â€“100 â†’ 0..4rem
 const MIN_BTN_REM = 2.0;          // smallest still-recognizable button (icon + border)
 const MIN_TRANSCRIPT_REM = 3.0;   // transcript floor (~2 lines)
 const SHRINK_GAP_REM = 1.4;       // how much gap a full left-shrink adds
@@ -2141,7 +2141,7 @@ const lerp = (pos, lo, hi) => lo + (Math.max(0, Math.min(100, pos)) / 100) * (hi
 
 // THE LAYOUT VIEWPORT, never window.innerWidth/innerHeight (Ken, July 31 2026).
 // The regions are sized as a fraction of the screen, so they must be measured
-// against the screen — and on Safari (iPad included) window.innerWidth/Height
+// against the screen â€” and on Safari (iPad included) window.innerWidth/Height
 // report the VISUAL viewport, which shrinks when the page is pinch-zoomed. The
 // solver bakes its result into --conv-dock-w as a px value, so one run while
 // zoomed permanently shrinks the dock: it only recomputes on resize or a settings
@@ -2155,12 +2155,12 @@ const layoutVH = () => document.documentElement.clientHeight || window.innerHeig
 
 // How far the page is pinch-zoomed. 1 = not zoomed. Anything else means the
 // on-screen geometry no longer matches what getBoundingClientRect reports, which
-// matters for the keyguard measurements. Absent API → assume 1 and do not block.
+// matters for the keyguard measurements. Absent API â†’ assume 1 and do not block.
 const zoomScale = () => (window.visualViewport && window.visualViewport.scale) || 1;
 
 // Block pinch-to-zoom (Ken, July 31 2026: "pinch/zoom should be disabled for this
-// app"). The viewport meta CANNOT do this on iOS — Safari has ignored
-// user-scalable=no since iOS 10 on accessibility grounds — so the only mechanism
+// app"). The viewport meta CANNOT do this on iOS â€” Safari has ignored
+// user-scalable=no since iOS 10 on accessibility grounds â€” so the only mechanism
 // that works there is preventDefault on Safari's own non-standard gesture events.
 // They do not exist in Chrome/Edge, where the meta tag is honoured instead, so
 // this listens for both and each platform is covered by the half that applies.
@@ -2172,7 +2172,7 @@ const zoomScale = () => (window.visualViewport && window.visualViewport.scale) |
 // which serves the same need without breaking the overlay.
 function blockZoomGestures() {
     // Safari: pinch. Passive listeners cannot preventDefault, so say so explicitly
-    // — these are exactly the events browsers default to passive.
+    // â€” these are exactly the events browsers default to passive.
     for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
         document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
     }
@@ -2203,8 +2203,8 @@ function applyButtonSizing() {
     const rem = remPx();
     const VW = layoutVW(), VH = layoutVH();
 
-    // Slider values → px. Effective gap = max(gap-size, min-gap) (min-gap is a
-    // one-way floor; lowering it leaves gap-size put — Ken #3).
+    // Slider values â†’ px. Effective gap = max(gap-size, min-gap) (min-gap is a
+    // one-way floor; lowering it leaves gap-size put â€” Ken #3).
     const minGap = (lerp(storage.loadMinGapPos(), 0, MINGAP_MAX_REM)) * rem;
     const gapSize = (lerp(storage.loadButtonGapPos(), 0, GAP_MAX_REM)) * rem;
     let gap = Math.max(gapSize, minGap);
@@ -2222,7 +2222,7 @@ function applyButtonSizing() {
         // Main-area minimum width: the command bar's 8 buttons bind first.
         const minMainW = 8 * minBtn + 9 * gap;
         if (growth > 0) {
-            // GROW: the dock widens (main shrinks W → command/response buttons
+            // GROW: the dock widens (main shrinks W â†’ command/response buttons
             // narrow) and the transcript shrinks V (command/response grow V).
             const maxDockW = Math.max(0.30 * VW, VW - minMainW);
             dockW = 0.30 * VW + growth * (maxDockW - 0.30 * VW);
@@ -2239,7 +2239,7 @@ function applyButtonSizing() {
         // stay fixed, the transcript yields vertically to its floor.
         let dockH = 0.30 * VH;
         if (growth > 0) {
-            const maxDockH = Math.max(0.30 * VH, 0.60 * VH - minTranscript); // transcript→floor
+            const maxDockH = Math.max(0.30 * VH, 0.60 * VH - minTranscript); // transcriptâ†’floor
             dockH = 0.30 * VH + growth * (maxDockH - 0.30 * VH);
         } else if (growth < 0) {
             gap = Math.max(gap, minGap) + (-growth) * SHRINK_GAP_REM * rem;
@@ -2272,8 +2272,8 @@ function applyFontScales() {
     root.setProperty('--response-font-scale', String(storage.loadResponseFontScale()));
 }
 
-// The − / + buttons flanking each size slider nudge it by a small fixed step
-// (Ken: the slider "grows uncontrollably quickly" when dragged right — the
+// The âˆ’ / + buttons flanking each size slider nudge it by a small fixed step
+// (Ken: the slider "grows uncontrollably quickly" when dragged right â€” the
 // steppers give precise control). They dispatch the slider's own 'input' event so
 // the existing persist/apply/clamp handlers run unchanged.
 function initSliderSteppers() {
@@ -2292,7 +2292,7 @@ function initSliderSteppers() {
 
 // An Express Panel phrase was activated (single tap, or confirmed double tap). It
 // is the user speaking, so it behaves like a selected response: spoken AND
-// committed to history (Ken — "anything spoken is part of the conversation").
+// committed to history (Ken â€” "anything spoken is part of the conversation").
 // Routed through the shared speak-as-a-turn path.
 async function handleSpeakExpressItem(phrase) {
     await speakAsUserTurn(phrase.text, phrase.speak || phrase.text);
@@ -2301,8 +2301,8 @@ async function handleSpeakExpressItem(phrase) {
 // --- Settings dialog ---
 
 // --- Keyguard Design: emit a "Screen Openings.txt" describing each control on
-// the main conversation screen, in DEVICE (screenshot) pixels — a physical
-// keyguard is cut in real pixels, so everything is CSS px × devicePixelRatio.
+// the main conversation screen, in DEVICE (screenshot) pixels â€” a physical
+// keyguard is cut in real pixels, so everything is CSS px Ã— devicePixelRatio.
 // Each opening's Y has the window title-bar height added so it lines up with a
 // full-screen screenshot (the page viewport sits below the title bar). X needs
 // no offset on a maximized window (content left edge = screen left edge).
@@ -2320,11 +2320,11 @@ function collectMainControls() {
     // Transcript (the conversation log box).
     add(document.getElementById('transcript'), 'Transcript');
 
-    // Command Bar — the icon buttons (each keeps an accessible name).
+    // Command Bar â€” the icon buttons (each keeps an accessible name).
     document.querySelectorAll('#listenControls button').forEach((b) =>
         add(b, b.getAttribute('aria-label') || b.textContent.trim() || b.id));
 
-    // Response footprint — the four fixed cells (empty at rest, populated in a
+    // Response footprint â€” the four fixed cells (empty at rest, populated in a
     // conversation; either way four), then the regenerate button.
     let rN = 0;
     document.querySelectorAll('#responseOptions > .response-card-empty, #responseOptions > .response-cell')
@@ -2342,20 +2342,20 @@ function collectMainControls() {
 async function generateScreenOpenings() {
     // WHERE THE FILE GOES depends on whether the user has a folder they can OPEN
     // (Ken, July 31 2026). On desktop it is written to the picked data folder, as
-    // before. On a tablet there is no picker and the data folder is OPFS — private
-    // to the browser and invisible in the Files app — so writing there would report
+    // before. On a tablet there is no picker and the data folder is OPFS â€” private
+    // to the browser and invisible in the Files app â€” so writing there would report
     // success for a file the user could never reach or email. The download path
-    // (share/save sheet → Files) is the only way off the device, so that is what a
+    // (share/save sheet â†’ Files) is the only way off the device, so that is what a
     // no-picker platform gets. Branch on the CAPABILITY, never on the user agent:
     // iPadOS Safari reports itself as a Mac, so a UA test would send the one browser
     // that needs the download down the folder path.
     const canPickFolder = storage.supportsUserChosenFolder();
     if (canPickFolder && !storage.hasDataFolder()) {
-        window.alert('Choose a data folder first (Settings → General → Data Folder), then try again.');
+        window.alert('Choose a data folder first (Settings â†’ General â†’ Data Folder), then try again.');
         return;
     }
-    // A zoomed page measures wrong in BOTH directions at once — Safari scales
-    // devicePixelRatio with the zoom and reports the visual viewport — so the file
+    // A zoomed page measures wrong in BOTH directions at once â€” Safari scales
+    // devicePixelRatio with the zoom and reports the visual viewport â€” so the file
     // would come out uniformly off and the error would only show up after the
     // plastic was cut. Zoom is blocked (blockZoomGestures), but browser-level and
     // OS accessibility zoom are outside our reach, so refuse rather than emit a
@@ -2367,7 +2367,7 @@ async function generateScreenOpenings() {
     }
     const titleBar = Math.max(0, Math.round(Number(document.getElementById('titleBarHeightInput').value) || 0));
     const dpr = window.devicePixelRatio || 1;
-    const px = (n) => Math.round(n * dpr); // CSS px → device/screenshot px
+    const px = (n) => Math.round(n * dpr); // CSS px â†’ device/screenshot px
 
     const controls = collectMainControls();
     const lines = controls.map(({ el, name }) => {
@@ -2385,7 +2385,7 @@ async function generateScreenOpenings() {
     const text = lines.join('\n') + '\n';
 
     // State the screenshot these coordinates assume. The openings are in device
-    // pixels, so they only line up over a screenshot at EXACTLY this size — and the
+    // pixels, so they only line up over a screenshot at EXACTLY this size â€” and the
     // commonest way a keyguard comes out misaligned is a screenshot that got
     // resized on its way to the designer (mail clients shrink attached images by
     // default), which scales the error with distance from the top-left corner and
@@ -2393,9 +2393,9 @@ async function generateScreenOpenings() {
     // checkable in seconds instead of after the plastic is cut.
     const shotW = px(layoutVW());
     const shotH = px(layoutVH()) + titleBar;
-    const expected = `Line these up over a screenshot ${shotW} × ${shotH} pixels — ` +
+    const expected = `Line these up over a screenshot ${shotW} Ã— ${shotH} pixels â€” ` +
         `if yours is a different size, it was resized and the openings will not fit. ` +
-        `(Measured ${layoutVW()} × ${layoutVH()} at ${dpr}×` +
+        `(Measured ${layoutVW()} Ã— ${layoutVH()} at ${dpr}Ã—` +
         `${titleBar ? `, plus ${titleBar}px for the bar above the app` : ', no bar above the app'}.)`;
 
     if (!canPickFolder) {
@@ -2426,10 +2426,10 @@ function initSettingsTabs() {
         tab.setAttribute('aria-selected', String(on));
         tab.addEventListener('click', () => activateSettingsTab(tab, false));
     });
-    // Up/Down arrows move BETWEEN tabs (Ken, July 2026 — the tabs stack in a
+    // Up/Down arrows move BETWEEN tabs (Ken, July 2026 â€” the tabs stack in a
     // vertical column, so up/down is the natural axis). The strip is a single Tab
     // stop (roving tabindex), so a physical-keyboard user doesn't have to Tab
-    // through every tab AND its content to reach another tab — they Tab to the
+    // through every tab AND its content to reach another tab â€” they Tab to the
     // strip once, arrow to the tab they want, then Tab on into the panel content.
     tablist.addEventListener('keydown', (e) => {
         const i = tabs.indexOf(document.activeElement);
@@ -2460,9 +2460,9 @@ function activateSettingsTab(tab, focus) {
     handleSettingsTab(tab.dataset.tab);
 }
 
-// On the Speech & Input tab the user changes keyboard layout/position but there's
-// no text field to type into, so show the keyboard as a live preview of the
-// CHOSEN dock. Any other tab takes the preview down.
+// On the Buttons & Keyboard tab the user changes keyboard layout/position but
+// there's no text field to type into, so show the keyboard as a live preview of
+// the CHOSEN dock. Any other tab takes the preview down.
 function handleSettingsTab(tabName) {
     // About Me renders into its own tab-panel and keeps the on-screen keyboard up
     // (a preview when no field is focused; a typing keyboard once a card field is).
@@ -2470,7 +2470,7 @@ function handleSettingsTab(tabName) {
     if (tabName === 'express') { expressEditor.render(); keyboard.hideKeyboard(); return; }
     if (tabName === 'controls') { controlEditor.render(); keyboard.hideKeyboard(); return; }
     if (tabName === 'practice') { renderPracticePanel(); keyboard.hideKeyboard(); return; }
-    if (tabName === 'speech' && storage.loadKeyboardMode() === 'onscreen') {
+    if (tabName === 'input' && storage.loadKeyboardMode() === 'onscreen') {
         keyboard.previewShow(storage.loadKeyboardDock());
     } else {
         // hideKeyboard (not previewHide) so leaving any tab forcibly drops the
@@ -2480,8 +2480,8 @@ function handleSettingsTab(tabName) {
     }
 }
 
-// Show only the controls relevant to the chosen dock: side → which-side + side
-// layout; bottom → bottom layout. Keeps Settings from implying both docks exist
+// Show only the controls relevant to the chosen dock: side â†’ which-side + side
+// layout; bottom â†’ bottom layout. Keeps Settings from implying both docks exist
 // at once now that it's a single choice.
 function updateKeyboardPositionGroups() {
     const dock = storage.loadKeyboardDock();
@@ -2515,7 +2515,7 @@ function populateVoiceSelect() {
     });
 }
 
-// Practice partner voice select — same voice list, with an "Auto" default that
+// Practice partner voice select â€” same voice list, with an "Auto" default that
 // picks a voice different from the user's own.
 function populatePartnerVoiceSelect() {
     const select = document.getElementById('partnerVoiceSelect');
@@ -2543,7 +2543,7 @@ function fillLayoutSelect(select, layouts, selectedId) {
     layouts.forEach(({ id, name }) => {
         const opt = document.createElement('option');
         opt.value = id;
-        // Show only the human-readable name — the S1/B1 ids are internal and mean
+        // Show only the human-readable name â€” the S1/B1 ids are internal and mean
         // nothing to the user; the id stays as the option's value.
         opt.textContent = name;
         if (id === selectedId) opt.selected = true;
@@ -2566,15 +2566,22 @@ function updateFolderDisplay() {
     // browser's own private storage and there is nothing for the user to choose.
     // Offering "Choose Folder" there would be an invitation to a dead end, so the
     // whole control is swapped for an explanation of where the data actually is
-    // and how safe it is. Keyed off capability, never off the user-agent — iPadOS
+    // and how safe it is. Keyed off capability, never off the user-agent â€” iPadOS
     // Safari claims to be a Mac.
     const deviceMode = !storage.supportsUserChosenFolder();
     const pickBtn = document.getElementById('pickFolderBtn');
     if (pickBtn) pickBtn.hidden = deviceMode;
     const hint = document.getElementById('dataFolderHint');
     if (hint && deviceMode) {
-        hint.textContent = 'This device keeps your data in the app’s own private storage. ' +
+        hint.textContent = 'This device keeps your data in the appâ€™s own private storage. ' +
             'You cannot open it as a folder, so use Backup & transfer below to keep a copy you can see and move.';
+    }
+    // The group's own label has to move with the hint: "Data Folder" names a thing
+    // that does not exist on a tablet, which is exactly the confusion the swapped
+    // hint below it is there to clear up.
+    const folderLabel = document.getElementById('dataFolderLabel');
+    if (folderLabel) {
+        folderLabel.textContent = deviceMode ? 'Where Your Data Is Kept' : 'Data Folder';
     }
     updateStorageDurability(deviceMode);
 }
@@ -2602,12 +2609,12 @@ async function updateStorageDurability(deviceMode) {
         return;
     }
     if (status.persisted) {
-        statusEl.textContent = `Your data is safe on this device — the browser has promised not to clear it.${room}`;
+        statusEl.textContent = `Your data is safe on this device â€” the browser has promised not to clear it.${room}`;
         statusEl.className = 'setting-hint storage-ok';
         if (btn) btn.hidden = true;
     } else {
         statusEl.textContent = 'Your data is NOT protected yet. This browser may erase it after about a week ' +
-            'without use. Tap below to ask it not to — and export a backup either way.';
+            'without use. Tap below to ask it not to â€” and export a backup either way.';
         statusEl.className = 'setting-hint storage-warn';
         if (btn) btn.hidden = false;
     }
@@ -2647,11 +2654,11 @@ async function updateUsageDisplay() {
     if (sttSeconds > 0) extras.push(`${Math.round(sttSeconds / 60)} min heard`);
     if (ttsCharacters > 0) extras.push(`${ttsCharacters.toLocaleString()} characters spoken`);
     document.getElementById('usageSince').textContent =
-        `since ${sinceDate}` + (extras.length ? ` · ${extras.join(' · ')}` : '');
+        `since ${sinceDate}` + (extras.length ? ` Â· ${extras.join(' Â· ')}` : '');
 }
 
 // Group the error log by conversation, most-recent conversation first. Errors
-// with no conversation id ('(none)') sort last. Returns [ [convId, entries], … ].
+// with no conversation id ('(none)') sort last. Returns [ [convId, entries], â€¦ ].
 function groupErrorsByConversation() {
     const groups = new Map();
     for (const e of storage.loadErrorLog()) {
@@ -2659,12 +2666,12 @@ function groupErrorsByConversation() {
         if (!groups.has(k)) groups.set(k, []);
         groups.get(k).push(e);
     }
-    // ids are timestamp strings, so a lexical sort is chronological; reverse →
+    // ids are timestamp strings, so a lexical sort is chronological; reverse â†’
     // newest first. '(none)' sorts before digits, so after reverse it lands last.
     return [...groups.keys()].sort().reverse().map((id) => [id, groups.get(id)]);
 }
 
-// Render the error-log viewer (Settings → About): errors GROUPED BY CONVERSATION
+// Render the error-log viewer (Settings â†’ About): errors GROUPED BY CONVERSATION
 // (Ken, July 2026), newest conversation first, so all the errors from one exchange
 // sit together. Compact here (no transcript); the full transcript is bundled by
 // Copy (buildErrorReport).
@@ -2676,7 +2683,7 @@ function renderErrorLog() {
     if (countEl) countEl.textContent = log.length ? `(${log.length})` : '';
     const lines = [];
     for (const [id, errs] of groupErrorsByConversation()) {
-        lines.push(`━━━ Conversation ${id} (${errs.length} error${errs.length > 1 ? 's' : ''}) ━━━`);
+        lines.push(`â”â”â” Conversation ${id} (${errs.length} error${errs.length > 1 ? 's' : ''}) â”â”â”`);
         for (const e of errs) {
             lines.push(`  ${e.ts} [${e.context}] ${e.message}` + (e.extra ? ` | ${JSON.stringify(e.extra)}` : ''));
         }
@@ -2692,14 +2699,14 @@ function renderErrorLog() {
 // Export writes one file containing everything; Import replaces everything from
 // one. On Windows this is a convenience over the visible data folder; on a tablet,
 // where the data folder is private to the browser, it is the ONLY way to back up
-// or move data — and the safety net for the measured fact that a browser tab is
+// or move data â€” and the safety net for the measured fact that a browser tab is
 // refused persistent storage, so site data can be evicted after 7 days of non-use.
 function setBackupStatus(msg) {
     const el = document.getElementById('backupStatus');
     if (el) el.textContent = msg || '';
 }
 
-// Restore from the text of a backup file, wherever it came from — the folder list
+// Restore from the text of a backup file, wherever it came from â€” the folder list
 // or the file picker. Both routes must confirm identically, because both replace
 // everything; keeping one implementation is what guarantees that.
 async function importPackageText(text, sourceLabel) {
@@ -2710,20 +2717,20 @@ async function importPackageText(text, sourceLabel) {
         setBackupStatus(err.message);
         return;
     }
-    // Show what's in the file BEFORE replacing anything — the user is about to
+    // Show what's in the file BEFORE replacing anything â€” the user is about to
     // overwrite everything and a filename is not enough to judge by.
     const when = pkg.exportedAt ? new Date(pkg.exportedAt).toLocaleString() : 'an unknown date';
     if (!(await confirmDanger({
         title: 'Replace everything with this backup?',
-        body: `${sourceLabel ? sourceLabel + '\n\n' : ''}This backup was made on ${when} and contains:\n\n• ` +
-              dataTransfer.summarize(pkg).join('\n• ') +
-              `\n\nImporting REPLACES what is on this device — your current About Me answers, people, Express Panel, starters and settings will be overwritten. Your API key is left alone. The app will reload afterwards.`,
+        body: `${sourceLabel ? sourceLabel + '\n\n' : ''}This backup was made on ${when} and contains:\n\nâ€¢ ` +
+              dataTransfer.summarize(pkg).join('\nâ€¢ ') +
+              `\n\nImporting REPLACES what is on this device â€” your current About Me answers, people, Express Panel, starters and settings will be overwritten. Your API key is left alone. The app will reload afterwards.`,
         confirmLabel: 'Replace my data',
     }))) {
-        setBackupStatus('Import cancelled — nothing was changed.');
+        setBackupStatus('Import cancelled â€” nothing was changed.');
         return;
     }
-    setBackupStatus('Importing…');
+    setBackupStatus('Importingâ€¦');
     try {
         const restored = await dataTransfer.applyPackage(pkg);
         if (restored.failed.length) {
@@ -2737,7 +2744,7 @@ async function importPackageText(text, sourceLabel) {
 }
 
 // Populate the list of backups sitting in <data folder>/backups/. Hidden entirely
-// where the folder is the browser's private storage — there is no folder for the
+// where the folder is the browser's private storage â€” there is no folder for the
 // user to have put a file into, so an empty picker there would only puzzle them.
 async function renderBackupList() {
     const row = document.getElementById('folderBackupRow');
@@ -2752,21 +2759,21 @@ async function renderBackupList() {
     row.hidden = false;
     const backups = await storage.listBackups();
     if (!backups.length) {
-        select.innerHTML = '<option value="">— No backups in your data folder yet —</option>';
+        select.innerHTML = '<option value="">â€” No backups in your data folder yet â€”</option>';
         select.disabled = true;
         restoreBtn.disabled = true;
         return;
     }
     select.disabled = false;
     restoreBtn.disabled = false;
-    // Date first (how the user thinks about a backup), then the filename — two
+    // Date first (how the user thinks about a backup), then the filename â€” two
     // backups made in the same minute would otherwise read identically, and the
     // filename is also what they see if they open the folder themselves. Size is
     // there because a suspiciously small backup is worth noticing before restoring
     // from it.
     select.innerHTML = backups.map((b) => {
         const when = b.savedAt ? new Date(b.savedAt).toLocaleString() : 'unknown date';
-        return `<option value="${b.name}">${when} — ${b.name} (${b.sizeKB} KB)</option>`;
+        return `<option value="${b.name}">${when} â€” ${b.name} (${b.sizeKB} KB)</option>`;
     }).join('');
 }
 
@@ -2774,20 +2781,20 @@ function wireBackupControls() {
     const fileInput = document.getElementById('importDataFile');
 
     document.getElementById('exportDataBtn').onclick = async () => {
-        setBackupStatus('Preparing your backup…');
+        setBackupStatus('Preparing your backupâ€¦');
         try {
-            // Where the user picked a real folder, the backup goes IN it — beside
+            // Where the user picked a real folder, the backup goes IN it â€” beside
             // the data it protects. Otherwise (a tablet's private storage, or no
             // folder at all) it leaves by the download/share path, which is then
             // the only way to get a file out of the app.
             if (storage.hasVisibleDataFolder()) {
                 const { pkg, path } = await dataTransfer.savePackageToFolder(APP_VERSION);
                 await renderBackupList();
-                setBackupStatus(`Saved to your data folder as ${path} — ` +
-                                dataTransfer.summarize(pkg).join(' · '));
+                setBackupStatus(`Saved to your data folder as ${path} â€” ` +
+                                dataTransfer.summarize(pkg).join(' Â· '));
             } else {
                 const pkg = await dataTransfer.downloadPackage(APP_VERSION);
-                setBackupStatus('Exported: ' + dataTransfer.summarize(pkg).join(' · '));
+                setBackupStatus('Exported: ' + dataTransfer.summarize(pkg).join(' Â· '));
             }
         } catch (err) {
             storage.logError('export', err.message || String(err));
@@ -2798,10 +2805,10 @@ function wireBackupControls() {
     document.getElementById('restoreBackupBtn').onclick = async () => {
         const name = document.getElementById('backupFileSelect').value;
         if (!name) return;
-        setBackupStatus('Reading…');
+        setBackupStatus('Readingâ€¦');
         const text = await storage.readBackup(name);
         if (text === null) {
-            setBackupStatus('Could not read that backup — it may have been moved or deleted.');
+            setBackupStatus('Could not read that backup â€” it may have been moved or deleted.');
             await renderBackupList();
             return;
         }
@@ -2833,12 +2840,12 @@ async function renderSettingsProfiles() {
     const status = document.getElementById('settingsProfilesStatus');
     if (!select) return;
     // All three act on the SELECTED profile, so they are enabled and disabled
-    // together — there is never a state where one is meaningful and another is not.
+    // together â€” there is never a state where one is meaningful and another is not.
     const setActionsEnabled = (on) => {
         loadBtn.disabled = delBtn.disabled = updBtn.disabled = !on;
     };
     if (!storage.hasDataFolder()) {
-        select.innerHTML = '<option value="">— Choose a data folder first —</option>';
+        select.innerHTML = '<option value="">â€” Choose a data folder first â€”</option>';
         select.disabled = true;
         setActionsEnabled(false);
         return;
@@ -2846,7 +2853,7 @@ async function renderSettingsProfiles() {
     select.disabled = false;
     const names = await storage.listSettingsProfiles();
     if (!names.length) {
-        select.innerHTML = '<option value="">— No saved profiles —</option>';
+        select.innerHTML = '<option value="">â€” No saved profiles â€”</option>';
         setActionsEnabled(false);
         setProfileStatus('');
         return;
@@ -2854,12 +2861,12 @@ async function renderSettingsProfiles() {
     select.innerHTML = names.map((n) => `<option value="${n}">${n}</option>`).join('');
     setActionsEnabled(true);
     // Reflect the profile currently in effect (persisted across reloads) rather than
-    // defaulting to the first name — so after a load/restart the picker shows what's
+    // defaulting to the first name â€” so after a load/restart the picker shows what's
     // actually in use (Ken, July 12 2026).
     const active = storage.loadActiveSettingsProfile();
     if (active && names.includes(active)) {
         select.value = active;
-        setProfileStatus(`In use: “${active}”.`);
+        setProfileStatus(`In use: â€œ${active}â€.`);
     } else {
         setProfileStatus('');
     }
@@ -2885,7 +2892,7 @@ function transcriptLine(ex) {
 async function buildErrorReport() {
     const groups = groupErrorsByConversation();
     const out = [
-        'Conversant AAC — error report',
+        'Conversant AAC â€” error report',
         `App version: ${APP_VERSION}`,
         `Generated: ${new Date().toISOString()}`,
         '',
@@ -2893,7 +2900,7 @@ async function buildErrorReport() {
     if (!groups.length) { out.push('(no errors recorded)'); return out.join('\n'); }
 
     for (const [id, errs] of groups) {
-        out.push(`════════ Conversation ${id} ════════`);
+        out.push(`â•â•â•â•â•â•â•â• Conversation ${id} â•â•â•â•â•â•â•â•`);
         const convLog = id !== '(none)' ? await storage.readConversationLog(id) : null;
         if (convLog && convLog.exchanges && convLog.exchanges.length) {
             out.push(`Started: ${convLog.started || '?'}`);
@@ -2901,16 +2908,16 @@ async function buildErrorReport() {
             for (const ex of convLog.exchanges) out.push(transcriptLine(ex));
         } else if (id === storage.getConversationId() && !storage.isConversationSaving()) {
             // The current conversation is private ("Don't save this conversation"),
-            // so nothing was written to disk on purpose — don't leak the live turns
+            // so nothing was written to disk on purpose â€” don't leak the live turns
             // into the bug report either (SEC-2).
-            out.push('Transcript: [private conversation — transcript withheld]');
+            out.push('Transcript: [private conversation â€” transcript withheld]');
         } else if (id === storage.getConversationId() && conversationHistory.length) {
             // The current conversation may not be fully on disk yet (an error can
-            // fire before the turn is committed) — fall back to the live turns.
-            out.push('Transcript (live — this conversation is still open):');
+            // fire before the turn is committed) â€” fall back to the live turns.
+            out.push('Transcript (live â€” this conversation is still open):');
             for (const t of conversationHistory) out.push(`  ${t.role}: ${t.text}`);
         } else {
-            out.push('Transcript: [not available — no data folder, or the conversation was not saved]');
+            out.push('Transcript: [not available â€” no data folder, or the conversation was not saved]');
         }
         out.push('', `Errors (${errs.length}):`);
         for (const e of errs) {
@@ -2921,11 +2928,11 @@ async function buildErrorReport() {
     return out.join('\n');
 }
 
-// --- Voice-list readout (Settings → About; Ken, July 31 2026) ---
+// --- Voice-list readout (Settings â†’ About; Ken, July 31 2026) ---
 //
 // WHY: on a tablet there is no console, so when a voice the user installed on the
 // device does not appear in the Voice picker there is no way to tell WHICH of
-// three things happened — the browser never reported it, it is there under a name
+// three things happened â€” the browser never reported it, it is there under a name
 // they did not recognize, or the list was captured before the voice was installed.
 // This shows exactly what getVoices() returned, ids and all.
 //
@@ -2938,19 +2945,19 @@ function voiceDiagnosticLines() {
     const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
         || navigator.standalone === true;
     const lines = [
-        `Conversant AAC — voices offered to the app`,
-        `Version ${APP_VERSION} · ${BUILD_ID}`,
+        `Conversant AAC â€” voices offered to the app`,
+        `Version ${APP_VERSION} Â· ${BUILD_ID}`,
         `Running as: ${standalone ? 'installed app (Home Screen)' : 'browser tab'}`,
         `User agent: ${navigator.userAgent}`,
         `Voices reported: ${voices.length}`,
         '',
     ];
-    // The diagnostic lists EVERY voice, including ones the pickers hide — its job is
+    // The diagnostic lists EVERY voice, including ones the pickers hide â€” its job is
     // to answer "why is this voice not in my list", which it could not do if it
     // applied the same filter. Hidden ones are marked instead.
     const showNovelty = storage.loadShowNoveltyVoices();
     voices.forEach((v, i) => {
-        const tier = tts.voiceQuality(v) || '—';
+        const tier = tts.voiceQuality(v) || 'â€”';
         const hidden = !showNovelty && tts.isNoveltyVoice(v) ? ' | hidden (joke voice)' : '';
         lines.push(`${String(i + 1).padStart(3, ' ')}. ${v.name} | ${v.lang} | ${tier}${v.default ? ' | default' : ''}${hidden}`);
         lines.push(`      ${v.voiceURI}`);
@@ -2964,7 +2971,7 @@ function renderVoiceList() {
     if (!view) return;
     const count = tts.getVoices().length;
     // Voices populate asynchronously in some browsers, so "0" here means "not yet"
-    // as often as it means "none" — say so rather than implying a verdict.
+    // as often as it means "none" â€” say so rather than implying a verdict.
     if (countEl) countEl.textContent = count ? `(${count})` : '(none reported yet)';
     view.value = count ? voiceDiagnosticLines().join('\n') : '';
     view.scrollTop = 0;
@@ -3000,7 +3007,7 @@ function openSettings() {
     fillLayoutSelect(bottomLayoutSelect, BOTTOM_LAYOUTS, storage.loadBottomLayout());
     fillLayoutSelect(sideLayoutSelect, SIDE_LAYOUTS, storage.loadSideLayout());
     sideDockPositionToggle.checked = storage.loadSideDockPosition() === 'right';
-    // Keyboard dock (side/bottom) — one choice for every typing context.
+    // Keyboard dock (side/bottom) â€” one choice for every typing context.
     const dockRadio = document.querySelector(`input[name="keyboardDock"][value="${storage.loadKeyboardDock()}"]`);
     if (dockRadio) dockRadio.checked = true;
     updateKeyboardPositionGroups();
@@ -3009,13 +3016,13 @@ function openSettings() {
     initialDelayInput.value = placeholderSettings.initialDelay;
     subsequentDelayInput.value = placeholderSettings.subsequentDelay;
     maxPlaceholdersInput.value = placeholderSettings.maxPlaceholders;
-    // Express Panel tap controls (no set selector — one list, always shown).
+    // Express Panel tap controls (no set selector â€” one list, always shown).
     const doubleTapMsSelect = document.getElementById('doubleTapMsSelect');
     const tapMode = storage.loadExpressTapMode();
     const tapRadio = document.querySelector(`input[name="expressTapMode"][value="${tapMode}"]`);
     if (tapRadio) tapRadio.checked = true;
     doubleTapMsSelect.value = storage.loadDoubleTapMs();
-    // Button sizing sliders (unitless 0–100).
+    // Button sizing sliders (unitless 0â€“100).
     const buttonSizeSlider = document.getElementById('buttonSizeSlider');
     const buttonGapSlider = document.getElementById('buttonGapSlider');
     const minGapSlider = document.getElementById('minGapSlider');
@@ -3054,7 +3061,7 @@ function openSettings() {
 
     dialog.showModal();
     // Park focus on the (non-input) header so the dialog doesn't autofocus the
-    // API-key field — which would pop the on-screen keyboard on open and race
+    // API-key field â€” which would pop the on-screen keyboard on open and race
     // with tab switches. The keyboard then appears only when a field or a
     // layout setting is tapped.
     document.getElementById('settingsHeader')?.focus();
@@ -3062,7 +3069,7 @@ function openSettings() {
     document.getElementById('pickFolderBtn').onclick = async () => {
         try {
             await storage.pickDataFolder();
-            // A folder just became available — reconcile the user-owned data:
+            // A folder just became available â€” reconcile the user-owned data:
             // adopt an existing on-disk copy, else promote the cache.
             try { await worldview.syncToFolder(); } catch { /* best-effort */ }
             try { await relationships.syncToFolder(); } catch { /* best-effort */ }
@@ -3083,13 +3090,13 @@ function openSettings() {
         updateUsageDisplay();
     };
 
-    // Reload the app (About tab) — a keyboard-free equivalent of Ctrl+Shift+R for a
+    // Reload the app (About tab) â€” a keyboard-free equivalent of Ctrl+Shift+R for a
     // tablet with no keyboard attached (Ken, July 2026). Refreshes the service
     // worker and clears its caches so the reload re-fetches the latest code from
     // the network instead of an offline copy. Not destructive: committed exchanges
     // are already logged to disk; only the on-screen (uncommitted) state resets.
     document.getElementById('reloadAppBtn').onclick = async () => {
-        ui.setStatus('Reloading the app…');
+        ui.setStatus('Reloading the appâ€¦');
         try {
             if ('serviceWorker' in navigator) {
                 const reg = await navigator.serviceWorker.getRegistration();
@@ -3099,11 +3106,11 @@ function openSettings() {
                 const keys = await caches.keys();
                 await Promise.all(keys.map((k) => caches.delete(k)));
             }
-        } catch { /* best effort — reload anyway */ }
+        } catch { /* best effort â€” reload anyway */ }
         location.reload();
     };
 
-    // Error log viewer (About tab) — populate now (Settings just opened) so Ken can
+    // Error log viewer (About tab) â€” populate now (Settings just opened) so Ken can
     // read what failed without a keyboard/devtools; Copy for a bug report, Clear to
     // reset the in-app view (the data-folder errors.log stays as the permanent record).
     renderErrorLog();
@@ -3111,7 +3118,7 @@ function openSettings() {
         const btn = document.getElementById('copyErrorLogBtn');
         try {
             await navigator.clipboard.writeText(await buildErrorReport());
-            const orig = btn.textContent; btn.textContent = 'Copied ✓';
+            const orig = btn.textContent; btn.textContent = 'Copied âœ“';
             setTimeout(() => { btn.textContent = orig; }, 1500);
         } catch { /* clipboard blocked/denied */ }
     };
@@ -3129,7 +3136,7 @@ function openSettings() {
         const btn = document.getElementById('copyVoiceListBtn');
         try {
             await navigator.clipboard.writeText(voiceDiagnosticLines().join('\n'));
-            const orig = btn.textContent; btn.textContent = 'Copied ✓';
+            const orig = btn.textContent; btn.textContent = 'Copied âœ“';
             setTimeout(() => { btn.textContent = orig; }, 1500);
         } catch { /* clipboard blocked/denied */ }
     };
@@ -3144,7 +3151,7 @@ function openSettings() {
         renderErrorLog();
     };
 
-    // Settings profiles (About tab) — save the whole settings bundle to the data
+    // Settings profiles (About tab) â€” save the whole settings bundle to the data
     // folder under a name, and re-apply it later. Populate the picker now.
     renderSettingsProfiles();
     setProfileStatus('');
@@ -3161,13 +3168,13 @@ function openSettings() {
                 }))) return;
             }
             const saved = await storage.saveSettingsProfile(name);
-            // The just-saved profile now matches the current settings — mark it active
+            // The just-saved profile now matches the current settings â€” mark it active
             // so the picker reflects it (here and after a reload).
             storage.saveActiveSettingsProfile(saved);
             profileNameInput.value = '';
             await renderSettingsProfiles();
             profileSelect.value = saved;
-            setProfileStatus(`Saved “${saved}”. In use: “${saved}”.`);
+            setProfileStatus(`Saved â€œ${saved}â€. In use: â€œ${saved}â€.`);
         } catch (err) {
             setProfileStatus(err.message || 'Could not save the profile.');
         }
@@ -3182,7 +3189,7 @@ function openSettings() {
         if (!name) return;
         if (!(await confirmDanger({
             title: 'Load these settings?',
-            body: `This replaces all of your current settings with the “${name}” profile, then reloads the app. Your API key stays as it is.`,
+            body: `This replaces all of your current settings with the â€œ${name}â€ profile, then reloads the app. Your API key stays as it is.`,
             confirmLabel: 'Load',
         }))) return;
         try {
@@ -3197,14 +3204,14 @@ function openSettings() {
     };
     // Overwrite the SELECTED profile with the settings currently in effect. This is
     // the counterpart to Load: tweak a setting, then put the change back where it
-    // came from. Confirmed because it destroys the profile's previous contents —
+    // came from. Confirmed because it destroys the profile's previous contents â€”
     // the same bar Save-over-an-existing-name already meets.
     document.getElementById('updateSettingsProfileBtn').onclick = async () => {
         const name = profileSelect.value;
         if (!name) return;
         if (!(await confirmDanger({
             title: 'Replace that profile?',
-            body: `Replace the “${name}” profile with your current settings? Whatever it holds now is lost.`,
+            body: `Replace the â€œ${name}â€ profile with your current settings? Whatever it holds now is lost.`,
             confirmLabel: 'Replace',
         }))) return;
         try {
@@ -3213,7 +3220,7 @@ function openSettings() {
             storage.saveActiveSettingsProfile(saved);
             await renderSettingsProfiles();
             profileSelect.value = saved;
-            setProfileStatus(`Updated “${saved}”. In use: “${saved}”.`);
+            setProfileStatus(`Updated â€œ${saved}â€. In use: â€œ${saved}â€.`);
         } catch (err) {
             setProfileStatus(err.message || 'Could not update the profile.');
         }
@@ -3223,7 +3230,7 @@ function openSettings() {
         if (!name) return;
         if (!(await confirmDanger({
             title: 'Delete this profile?',
-            body: `Delete the settings profile “${name}”? This removes its file from your data folder.`,
+            body: `Delete the settings profile â€œ${name}â€? This removes its file from your data folder.`,
             confirmLabel: 'Delete',
         }))) return;
         await storage.deleteSettingsProfile(name);
@@ -3231,7 +3238,7 @@ function openSettings() {
         // settings are unchanged; they're just no longer "named").
         if (storage.loadActiveSettingsProfile() === name) storage.saveActiveSettingsProfile('');
         await renderSettingsProfiles();
-        setProfileStatus(`Deleted “${name}”.`);
+        setProfileStatus(`Deleted â€œ${name}â€.`);
     };
 
     wireBackupControls();
@@ -3245,9 +3252,9 @@ function openSettings() {
             // A refusal is not an error to hide. On a tablet this is the difference
             // between data that survives and data that does not, and the honest
             // answer is that the browser said no and a backup is now the real
-            // protection — measured behavior in a Safari tab, July 30 2026.
+            // protection â€” measured behavior in a Safari tab, July 30 2026.
             const el = document.getElementById('storageDurabilityStatus');
-            el.textContent = 'The browser declined. It may erase this data after about a week without use — ' +
+            el.textContent = 'The browser declined. It may erase this data after about a week without use â€” ' +
                 'export a backup below and keep it somewhere safe. Installing the app to your Home Screen ' +
                 'usually gets the promise granted.';
             el.className = 'setting-hint storage-warn';
@@ -3258,7 +3265,7 @@ function openSettings() {
     };
 
     document.getElementById('generateOpeningsBtn').onclick = generateScreenOpenings;
-    // Say where the file will actually land on THIS device — see generateScreenOpenings.
+    // Say where the file will actually land on THIS device â€” see generateScreenOpenings.
     document.getElementById('generateOpeningsHint').innerHTML = storage.supportsUserChosenFolder()
         ? 'Writes <strong>Screen Openings.txt</strong> to the root of your data folder. ' +
           "Choose a data folder first (General tab) if you haven't."
@@ -3272,13 +3279,13 @@ function openSettings() {
     };
 
     // Test the practice partner's voice. This works for "Auto" too: Auto is not
-    // random — pickPartnerVoice takes the first voice that is not the user's own —
+    // random â€” pickPartnerVoice takes the first voice that is not the user's own â€”
     // so it can be resolved here and demonstrated exactly. That matters because
     // Auto is the DEFAULT, and a Test button that refused the default would leave
     // the common case unhearable. The resolved name is shown for Auto, since
     // otherwise the user has no way to know what they just heard.
     // NOTE: read the element here rather than using the `partnerVoiceSelect` const,
-    // which is declared further down this function — referencing it now would hit
+    // which is declared further down this function â€” referencing it now would hit
     // the temporal dead zone the moment the change listener below is attached.
     const partnerVoiceEl = document.getElementById('partnerVoiceSelect');
     document.getElementById('testPartnerVoiceBtn').onclick = () => {
@@ -3301,7 +3308,7 @@ function openSettings() {
         } else {
             status.hidden = true;
         }
-        tts.speak('Hello — in Practice Mode, this is the voice of the person you are talking to.',
+        tts.speak('Hello â€” in Practice Mode, this is the voice of the person you are talking to.',
             { voiceURI: uri });
     };
     // A changed selection makes any previously-reported Auto choice stale.
@@ -3318,19 +3325,19 @@ function openSettings() {
         onChange: () => reflectApiKeyFormat(),   // red warning if it looks malformed
     });
     reflectApiKeyFormat();          // reflect the current saved value on open
-    // Paste button beside the API-key field — replaces the keyboard's removed
-    // clipboard toolbar as the way to paste a long `sk-ant-…` key.
+    // Paste button beside the API-key field â€” replaces the keyboard's removed
+    // clipboard toolbar as the way to paste a long `sk-ant-â€¦` key.
     // Every outcome is reported. Reading the clipboard is not a plain function
     // call on every platform: Safari answers it by putting up its own "Paste"
     // confirmation that the user has to tap, and rejects if they don't. Swallowing
     // that silently made this look like a dead button on an iPad while the OS's
-    // own touch-and-hold Paste worked fine (Ken, July 30 2026) — so a refusal now
+    // own touch-and-hold Paste worked fine (Ken, July 30 2026) â€” so a refusal now
     // names the alternative instead of leaving the user with nothing.
     document.getElementById('pasteApiKeyBtn').onclick = async () => {
         try {
             const text = (await navigator.clipboard.readText())?.trim();
             if (!text) {
-                showApiKeyStatus('warn', 'The clipboard is empty — copy your key first.');
+                showApiKeyStatus('warn', 'The clipboard is empty â€” copy your key first.');
                 return;
             }
             setKeyFieldValue(apiKeyInput, text);
@@ -3341,32 +3348,34 @@ function openSettings() {
                 'Could not read the clipboard. Touch and hold the box above, then choose Paste.');
         }
     };
-    // Test button — the only way to catch a subtly-wrong key (right format, wrong
+    // Test button â€” the only way to catch a subtly-wrong key (right format, wrong
     // characters). Verifies against the API (GET /v1/models, bills no tokens).
     document.getElementById('testApiKeyBtn').onclick = async () => {
         const key = keyFieldValue(apiKeyInput) ?? (storage.loadApiKey() || '');
         if (!key) { showApiKeyStatus('warn', 'Enter your key first, then tap Test.'); return; }
         const btn = document.getElementById('testApiKeyBtn');
         btn.disabled = true;
-        showApiKeyStatus('checking', 'Checking your key…');
+        showApiKeyStatus('checking', 'Checking your keyâ€¦');
         const res = await llm.testApiKey(key);
         btn.disabled = false;
-        if (res.ok) showApiKeyStatus('ok', '✓ Your key is working.');
-        else if (res.reason === 'rejected') showApiKeyStatus('warn', '✗ The key was rejected — check you copied all of it, including the end.');
+        if (res.ok) showApiKeyStatus('ok', 'âœ“ Your key is working.');
+        else if (res.reason === 'rejected') showApiKeyStatus('warn', 'âœ— The key was rejected â€” check you copied all of it, including the end.');
         else if (res.reason === 'empty') showApiKeyStatus('warn', 'Enter your key first, then tap Test.');
-        else showApiKeyStatus('warn', "Couldn't reach the service — check your internet connection and try again.");
+        else showApiKeyStatus('warn', "Couldn't reach the service â€” check your internet connection and try again.");
     };
     // --- Transcription backend (Ken, July 30 2026) ---------------------------
     // Changing the provider or the key needs a reload, because stt.init() builds
     // the capture source once at startup. Say so plainly rather than leaving the
     // user to wonder why the setting appears to do nothing until next time.
     const deepgramKeyInput = document.getElementById('deepgramKeyInput');
-    const deepgramRow = document.getElementById('deepgramRow');
+    const sttCostHint = document.getElementById('sttCostHint');
     const reflectSttProvider = () => {
         const provider = storage.loadSttProvider();
         const radio = document.querySelector(`input[name="sttProvider"][value="${provider}"]`);
         if (radio) radio.checked = true;
-        if (deepgramRow) deepgramRow.hidden = provider !== 'deepgram';
+        // The key field itself is always on screen (it is shared with the voice
+        // choice below); only what this costs is conditional.
+        if (sttCostHint) sttCostHint.hidden = provider !== 'deepgram';
     };
     wireKeyField(deepgramKeyInput, {
         load: () => storage.loadDeepgramKey() || '',
@@ -3378,7 +3387,7 @@ function openSettings() {
             if (!radio.checked) return;
             storage.saveSttProvider(radio.value);
             reflectSttProvider();
-            showDeepgramStatus('ok', 'Saved. Reload the app (About → Reload the app) to start using it.');
+            showDeepgramStatus('ok', 'Saved. Reload the app (About â†’ Reload the app) to start using it.');
         };
     });
     const pasteDeepgramBtn = document.getElementById('pasteDeepgramKeyBtn');
@@ -3386,7 +3395,7 @@ function openSettings() {
         pasteDeepgramBtn.onclick = async () => {
             try {
                 const text = (await navigator.clipboard.readText())?.trim();
-                if (!text) { showDeepgramStatus('warn', 'The clipboard is empty — copy your key first.'); return; }
+                if (!text) { showDeepgramStatus('warn', 'The clipboard is empty â€” copy your key first.'); return; }
                 setKeyFieldValue(deepgramKeyInput, text);
                 showDeepgramStatus(null, '');
             } catch {
@@ -3402,7 +3411,7 @@ function openSettings() {
             const key = keyFieldValue(deepgramKeyInput) ?? (storage.loadDeepgramKey() || '');
             if (!key) { showDeepgramStatus('warn', 'Enter your key first, then tap Test.'); return; }
             testDeepgramBtn.disabled = true;
-            showDeepgramStatus('checking', 'Checking your key…');
+            showDeepgramStatus('checking', 'Checking your keyâ€¦');
             const res = await sttDeepgram.testKey(key);
             testDeepgramBtn.disabled = false;
             showDeepgramStatus(res.ok ? 'ok' : 'warn', res.message);
@@ -3413,7 +3422,6 @@ function openSettings() {
     // Unlike the transcription provider, this one takes effect immediately: tts.js
     // routes per utterance rather than building a source once at startup, so there
     // is nothing to reload.
-    const auraRow = document.getElementById('auraRow');
     const auraVoiceSelect = document.getElementById('auraVoiceSelect');
     const auraPartnerVoiceSelect = document.getElementById('auraPartnerVoiceSelect');
     const fillAuraSelect = (select, selected, autoLabel) => {
@@ -3428,16 +3436,28 @@ function openSettings() {
         ttsDeepgram.VOICES.forEach((v) => {
             const opt = document.createElement('option');
             opt.value = v.id;
-            opt.textContent = `${v.name} — ${v.detail}`;
+            opt.textContent = `${v.name} â€” ${v.detail}`;
             if (v.id === selected) opt.selected = true;
             select.appendChild(opt);
         });
     };
+    // Swap BOTH voice pickers â€” the user's own and the Practice partner's â€” to the
+    // chosen backend. The partner follows the same service rather than being a
+    // third choice: mixing a device voice against a Deepgram one is a combination
+    // nobody asked for, and it would double the pickers on screen again.
     const reflectTtsProvider = () => {
         const provider = storage.loadTtsProvider();
+        const aura = provider === 'deepgram';
         const radio = document.querySelector(`input[name="ttsProvider"][value="${provider}"]`);
         if (radio) radio.checked = true;
-        if (auraRow) auraRow.hidden = provider !== 'deepgram';
+        const show = (id, on) => {
+            const el = document.getElementById(id);
+            if (el) el.hidden = !on;
+        };
+        show('auraRow', aura);
+        show('auraPartnerRow', aura);
+        show('builtinVoiceRow', !aura);
+        show('builtinPartnerVoiceRow', !aura);
     };
     fillAuraSelect(auraVoiceSelect, storage.loadAuraVoice() || ttsDeepgram.DEFAULT_VOICE);
     fillAuraSelect(auraPartnerVoiceSelect, storage.loadAuraPartnerVoice(), 'Auto (a voice that isn\'t yours)');
@@ -3479,7 +3499,7 @@ function openSettings() {
             const key = (keyFieldValue(deepgramKeyInput) ?? (storage.loadDeepgramKey() || '')).trim();
             if (!key) { showAuraStatus(which, 'warn', 'Enter your Deepgram key above first.'); return; }
             btn.disabled = true;
-            showAuraStatus(which, 'checking', 'Speaking…');
+            showAuraStatus(which, 'checking', 'Speakingâ€¦');
             const res = await tts.testAuraVoice(key, getModel(), phrase);
             btn.disabled = false;
             showAuraStatus(which, res.ok ? 'ok' : 'warn', res.message);
@@ -3490,7 +3510,7 @@ function openSettings() {
         'This is how I will sound during our conversation.');
     wireAuraTest(document.getElementById('testAuraPartnerVoiceBtn'), 'partner',
         () => pickAuraPartnerVoice(auraPartnerVoiceSelect && auraPartnerVoiceSelect.value),
-        'Hello — in Practice Mode, this is the voice of the person you are talking to.');
+        'Hello â€” in Practice Mode, this is the voice of the person you are talking to.');
 
     const showNoveltyInput = document.getElementById('showNoveltyVoicesInput');
     if (showNoveltyInput) {
@@ -3531,7 +3551,7 @@ function openSettings() {
     responsesPerCategoryInput.onchange = () => {
         const n = Number(responsesPerCategoryInput.value);
         storage.saveResponsesPerCategory(n);
-        ui.setRegenerateLabel((n === 2 ? 2 : 1) * 4); // "New 4" ↔ "New 8"
+        ui.setRegenerateLabel((n === 2 ? 2 : 1) * 4); // "New 4" â†” "New 8"
         ui.setCardsPerCategory(n);
         ui.clearResponseOptions(); // re-render the reserved footprint (4 vs 8 slots)
     };
@@ -3549,10 +3569,10 @@ function openSettings() {
         };
     });
     // Tapping (or focusing, or changing) a keyboard-layout control previews
-    // that dock — and shows the keyboard if it's currently hidden (e.g. after
+    // that dock â€” and shows the keyboard if it's currently hidden (e.g. after
     // Hide). CLICK, not pointerdown: showing the keyboard resizes the Settings
     // panel (it sits clear of the dock), and moving a <select> out from under a
-    // finger that is still down makes WebKit abandon the tap — so on an iPad the
+    // finger that is still down makes WebKit abandon the tap â€” so on an iPad the
     // native picker never opened at all (Ken, July 30 2026). click still covers
     // the case pointerdown was chosen for in v0.2.19, re-tapping an
     // already-focused control where no focus event fires, but arrives after the
@@ -3589,7 +3609,7 @@ function openSettings() {
             storage.saveKeyboardDock(dock);
             keyboard.setKeyboardDock(dock);
             updateKeyboardPositionGroups();
-            applyConversationDockClasses(); // move the dock area + re-pick 2×2/1×4
+            applyConversationDockClasses(); // move the dock area + re-pick 2Ã—2/1Ã—4
             renderExpressPanel();        // mirror the now-current dock's layout
             if (storage.loadKeyboardMode() === 'onscreen') keyboard.previewShow(dock);
         };
@@ -3616,7 +3636,7 @@ function openSettings() {
         renderExpressPanel();
     };
 
-    // Button sizing — apply live as the slider drags (oninput) so the change is
+    // Button sizing â€” apply live as the slider drags (oninput) so the change is
     // visible immediately (incl. the keyboard preview on this tab), persisting as
     // it goes. applyButtonSizing() re-derives --btn-min-dim / --grid-gap and the
     // dock grows/shrinks accordingly.
@@ -3636,20 +3656,20 @@ function openSettings() {
         const mg = Number(minGapSlider.value);
         storage.saveMinGapPos(mg);
         // Raising min-gap above the current gap pushes the gap up to match
-        // (one-way; lowering min-gap leaves the gap where it is — Ken #3).
+        // (one-way; lowering min-gap leaves the gap where it is â€” Ken #3).
         if (Number(buttonGapSlider.value) < mg) {
             buttonGapSlider.value = String(mg);
             storage.saveButtonGapPos(mg);
         }
         applyButtonSizing();
     };
-    // Keyboard separation — independent of the inter-button gap; shifts the rest
+    // Keyboard separation â€” independent of the inter-button gap; shifts the rest
     // of the UI away from the dock without resizing buttons or the dock footprint.
     dockSepSlider.oninput = () => {
         storage.saveDockSepPos(Number(dockSepSlider.value));
         applyButtonSizing();
     };
-    // Transcript separation — shortens the transcript to open a gap above the
+    // Transcript separation â€” shortens the transcript to open a gap above the
     // command bar; a keyguard-design concern, so it lives on the Keyguard tab.
     transcriptSepSlider.oninput = () => {
         storage.saveTranscriptSepPos(Number(transcriptSepSlider.value));
@@ -3662,12 +3682,12 @@ function openSettings() {
         buttonSizeSlider.value = String(storage.loadButtonSizePos());
         buttonGapSlider.value = String(storage.loadButtonGapPos());
         minGapSlider.value = String(storage.loadMinGapPos());
-        // dockSepSlider is intentionally left untouched — keyboard separation is
+        // dockSepSlider is intentionally left untouched â€” keyboard separation is
         // not part of the button/gap sizing the reset restores (Ken).
         applyButtonSizing();
     };
 
-    // Text-size selects — persist + apply live.
+    // Text-size selects â€” persist + apply live.
     transcriptFontSelect.onchange = () => { storage.saveTranscriptFontScale(transcriptFontSelect.value); applyFontScales(); };
     composerFontSelect.onchange = () => { storage.saveComposerFontScale(composerFontSelect.value); applyFontScales(); };
     expressFontSelect.onchange = () => { storage.saveExpressFontScale(expressFontSelect.value); applyFontScales(); };
@@ -3677,7 +3697,7 @@ function openSettings() {
         // Belt-and-suspenders: persist the API key from the field on Close.
         // `oninput` already saves on every keystroke/paste, but some paste paths
         // (e.g. autofill, or an OS paste that doesn't dispatch `input`) can leave
-        // the field populated yet unsaved — Ken's bug 1. Saving here guarantees
+        // the field populated yet unsaved â€” Ken's bug 1. Saving here guarantees
         // whatever is in the field when the user closes Settings is persisted.
         const key = keyFieldValue(apiKeyInput);   // null = untouched (still redacted)
         if (key !== null && key !== (storage.loadApiKey() || '')) {
@@ -3696,7 +3716,7 @@ function openSettings() {
  *
  * initApp() wires every control in the app, in one pass, and used to be called
  * bare. So a throw anywhere in it left the surviving buttons dead with no clue
- * why — which on an iPad, where there is no console to open, presents as "the
+ * why â€” which on an iPad, where there is no console to open, presents as "the
  * Start button doesn't do anything". That exact symptom has now cost two rounds of
  * guessing, so the app says what broke instead of failing mute.
  *
@@ -3710,17 +3730,17 @@ function reportStartupFailure(where, err) {
     try { storage.logError('startup:' + where, msg); } catch { /* logging is best-effort */ }
     try {
         const box = document.getElementById('startupError');
-        if (!box || !box.hidden) return;   // first failure wins — it is the root cause
+        if (!box || !box.hidden) return;   // first failure wins â€” it is the root cause
         // Only while the pre-start screen is still up. These handlers stay attached
         // for the whole session, and a rejection during a conversation is not a
-        // startup failure — it belongs in the error log (above) and the transcript
+        // startup failure â€” it belongs in the error log (above) and the transcript
         // red-wash, not in a card the user can no longer see anyway.
         const startBlock = document.getElementById('startBlock');
         if (!startBlock || startBlock.classList.contains('hidden')) return;
-        // Name the build here: this card is shown precisely when Settings — and so
-        // the version line in About — cannot be reached.
+        // Name the build here: this card is shown precisely when Settings â€” and so
+        // the version line in About â€” cannot be reached.
         document.getElementById('startupErrorDetail').textContent =
-            `v${APP_VERSION} · ${BUILD_ID}\n${where} — ${msg}`;
+            `v${APP_VERSION} Â· ${BUILD_ID}\n${where} â€” ${msg}`;
         box.hidden = false;
     } catch { /* the DOM itself is gone; the console line above is all we have */ }
 }
@@ -3731,7 +3751,7 @@ window.addEventListener('unhandledrejection', (e) => reportStartupFailure('promi
 // The build used to be stamped under the Start button as well, because a start-up
 // failure made Settings unreachable and there was no other way to tell which build
 // you had. Removed once the iPad Home Screen app was confirmed to get past Start
-// (Ken, July 30 2026) — Settings → About carries it now. The startup-failure card
+// (Ken, July 30 2026) â€” Settings â†’ About carries it now. The startup-failure card
 // below is what covers the case the stamp was insurance against, and it names the
 // build in its own detail line.
 try {

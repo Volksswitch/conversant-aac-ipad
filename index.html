@@ -134,15 +134,20 @@
     </main>
 
     <dialog id="settingsDialog">
+        <!-- The dismiss control sits in the title bar rather than a footer row
+             (Ken, August 1 2026): a full-width footer cost a whole button's height
+             plus its padding out of the panel, on every tab, to hold one button. -->
         <div id="settingsHeader" tabindex="-1">
             <span id="settingsTitle">Settings</span>
+            <button id="closeSettingsBtn" type="button"></button>
         </div>
         <div id="settingsLayout">
             <nav id="settingsTabs">
                 <div class="settings-tab active" data-tab="general">General</div>
                 <div class="settings-tab" data-tab="aboutme">About Me</div>
                 <div class="settings-tab" data-tab="textsize">Text Size</div>
-                <div class="settings-tab" data-tab="speech">Speech &amp; Input</div>
+                <div class="settings-tab" data-tab="speech">Speech</div>
+                <div class="settings-tab" data-tab="input">Buttons &amp; Keyboard</div>
                 <div class="settings-tab" data-tab="conversation">Conversation</div>
                 <div class="settings-tab" data-tab="practice">Practice</div>
                 <div class="settings-tab" data-tab="express">Express Panel</div>
@@ -161,62 +166,14 @@
                         </div>
                         <p id="apiKeyStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
                     </div>
-                    <!-- Hearing the other person. Built-in is free and works on
-                         Windows; the paid backend exists for the platforms where the
-                         browser's own recognizer silently delivers nothing (an iPad
-                         Home Screen app, and Chrome/Edge on iPad). -->
+                    <!-- Hearing and speaking now live on their own Speech tab (Ken,
+                         August 1 2026): having voices settable from two tabs, and the
+                         Deepgram key reachable only through the transcription choice,
+                         was the confusion. -->
                     <div class="setting-group">
-                        <label>Hearing the other person</label>
-                        <!-- radio-row / radio-label are the standard pair used by every
-                             other radio group here; this one was added later and missed
-                             them, so it had no layout of its own. -->
-                        <div class="radio-row">
-                            <label class="radio-label"><input type="radio" name="sttProvider" value="builtin"> This browser's own (free)</label>
-                            <label class="radio-label"><input type="radio" name="sttProvider" value="deepgram"> Deepgram transcription (paid)</label>
-                        </div>
-                        <p class="setting-hint">Your browser can usually do this itself, at no cost. On an iPad it can't — listening does nothing in a Home Screen app, and in Chrome or Edge — so a transcription service is the way to have the app hear the other person there.</p>
-                        <div id="deepgramRow" hidden>
-                            <label for="deepgramKeyInput">Deepgram key</label>
-                            <div id="deepgramKeyRow">
-                                <input type="text" id="deepgramKeyInput" placeholder="Your Deepgram API key" autocomplete="off" spellcheck="false">
-                                <button id="pasteDeepgramKeyBtn" type="button" aria-label="Paste Deepgram key">Paste</button>
-                                <button id="testDeepgramKeyBtn" type="button">Test</button>
-                            </div>
-                            <p id="deepgramKeyStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
-                            <p class="setting-hint">Sign up at <a href="https://deepgram.com" target="_blank" rel="noopener">deepgram.com</a> — new accounts include $200 of free credit, which is several hundred hours, and no card is needed to start. Create a key in the console under Settings → API Keys. Costs about 46 cents an hour of speech; the app only sends audio while someone is actually talking, so quiet stretches are free.</p>
-                        </div>
-                    </div>
-                    <!-- The voice the app speaks WITH. The browser's own voices are
-                         free and fine on Windows. On an iPad they are not: measured
-                         July 31 2026, the only ordinary en-US voice on offer is
-                         Samantha, the rest being 1980s novelty voices or
-                         one-per-language minimum-quality voices, and installing
-                         better ones does not make them reachable from a web app. -->
-                    <div class="setting-group">
-                        <label>Your speaking voice</label>
-                        <div class="radio-row">
-                            <label class="radio-label"><input type="radio" name="ttsProvider" value="builtin"> This device's voices (free)</label>
-                            <label class="radio-label"><input type="radio" name="ttsProvider" value="deepgram"> Deepgram voice (paid)</label>
-                        </div>
-                        <p class="setting-hint">Your device's own voices cost nothing and work offline. On an iPad they are limited to Samantha and a set of joke voices, so a paid voice is the way to sound like yourself there. Uses the <b>same Deepgram key</b> as transcription above.</p>
-                        <div id="auraRow" hidden>
-                            <label for="auraVoiceSelect">Deepgram voice</label>
-                            <select id="auraVoiceSelect"></select>
-                            <div class="profiles-row profiles-actions">
-                                <button id="testAuraVoiceBtn" type="button">Test this voice</button>
-                            </div>
-                            <p id="auraVoiceStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
-                            <label for="auraPartnerVoiceSelect">Practice partner's Deepgram voice</label>
-                            <select id="auraPartnerVoiceSelect"></select>
-                            <div class="profiles-row profiles-actions">
-                                <button id="testAuraPartnerVoiceBtn" type="button">Test partner voice</button>
-                            </div>
-                            <p id="auraPartnerVoiceStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
-                            <p class="setting-hint">Costs about 3 cents per 1,000 characters spoken — a few cents an hour of conversation. Phrases the app repeats (placeholders, your Express Panel buttons, starters and goodbyes) are remembered after the first time and cost nothing to say again. If the service cannot be reached, the app falls back to this device's own voice so you are never left unable to speak.</p>
-                        </div>
-                    </div>
-                    <div class="setting-group">
-                        <label>Data Folder</label>
+                        <!-- Retitled at runtime where there is no folder to choose
+                             (see updateFolderDisplay in app.js). -->
+                        <label id="dataFolderLabel">Data Folder</label>
                         <div id="dataFolderRow">
                             <span id="dataFolderName" class="placeholder">No folder selected</span>
                             <button id="pickFolderBtn" type="button">Choose Folder</button>
@@ -234,7 +191,7 @@
                     </div>
                     <div class="setting-group" id="settingsProfilesGroup">
                         <label>Settings profiles</label>
-                        <p class="setting-hint">Save <b>all</b> of your settings (voice, silence period, dock &amp; layout, button/gap sizes, tap mode, text sizes, placeholders) as a named profile in your data folder, then re-apply it in one tap — handy for a repeatable test baseline or moving your setup to another device. Your API key and usage counters are <b>not</b> included. Needs a data folder (above).</p>
+                        <p class="setting-hint">Save <b>all</b> of your settings (voice, silence period, dock &amp; layout, button/gap sizes, tap mode, text sizes, placeholders) as a named profile, then re-apply it in one tap — handy for a repeatable test baseline or moving your setup to another device. Your API keys and usage counters are <b>not</b> included. Profiles are stored with the rest of your data (above), so they travel with a backup.</p>
                         <!-- Control above, its buttons on their own full-width row below —
                              the same shape as the voice Test buttons. Sharing a row with
                              the select squeezed each button to a sliver, which is a real
@@ -332,7 +289,103 @@
                         <p class="setting-hint">Size of the text on the Express Panel buttons.</p>
                     </div>
                 </div>
+                <!-- Speech: everything about how the app HEARS and SPEAKS, in one
+                     place. The two choices are independent — you can hear through
+                     one service and speak through the other — and both draw on the
+                     single Deepgram key at the top, which is why the key is stated
+                     once, up front, rather than tucked inside either choice. -->
                 <div class="tab-panel" data-tab="speech">
+                    <!-- Always shown, even with both choices set to this device. It
+                         is the shared dependency of the two paid options below, and
+                         hiding it behind one of them left the other pointing at a
+                         field that wasn't on screen. -->
+                    <div class="setting-group">
+                        <label for="deepgramKeyInput">Deepgram key</label>
+                        <div id="deepgramKeyRow">
+                            <input type="text" id="deepgramKeyInput" placeholder="Your Deepgram API key" autocomplete="off" spellcheck="false">
+                            <button id="pasteDeepgramKeyBtn" type="button" aria-label="Paste Deepgram key">Paste</button>
+                            <button id="testDeepgramKeyBtn" type="button">Test</button>
+                        </div>
+                        <p id="deepgramKeyStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
+                        <p class="setting-hint">Only needed if you choose Deepgram below — for hearing, for speaking, or for both. <b>One key covers both.</b> Sign up at <a href="https://deepgram.com" target="_blank" rel="noopener">deepgram.com</a> — new accounts include $200 of free credit, which is several hundred hours, and no card is needed to start. Create a key in the console under Settings → API Keys.</p>
+                    </div>
+                    <!-- Hearing the other person. Built-in is free and works on
+                         Windows; the paid backend exists for the platforms where the
+                         browser's own recognizer silently delivers nothing (an iPad
+                         Home Screen app, and Chrome/Edge on iPad). -->
+                    <div class="setting-group">
+                        <label>Hearing the other person</label>
+                        <!-- radio-row / radio-label are the standard pair used by every
+                             other radio group here; this one was added later and missed
+                             them, so it had no layout of its own. -->
+                        <div class="radio-row">
+                            <label class="radio-label"><input type="radio" name="sttProvider" value="builtin"> This browser's own (free)</label>
+                            <label class="radio-label"><input type="radio" name="sttProvider" value="deepgram"> Deepgram transcription (paid)</label>
+                        </div>
+                        <p class="setting-hint">Your browser can usually do this itself, at no cost. On an iPad it can't — listening does nothing in a Home Screen app, and in Chrome or Edge — so a transcription service is the way to have the app hear the other person there.</p>
+                        <p class="setting-hint" id="sttCostHint" hidden>Deepgram transcription costs about 46 cents an hour of speech; the app only sends audio while someone is actually talking, so quiet stretches are free.</p>
+                    </div>
+                    <!-- The voice the app speaks WITH. The browser's own voices are
+                         free and fine on Windows. On an iPad they are not: measured
+                         July 31 2026, the only ordinary en-US voice on offer is
+                         Samantha, the rest being 1980s novelty voices or
+                         one-per-language minimum-quality voices, and installing
+                         better ones does not make them reachable from a web app. -->
+                    <div class="setting-group">
+                        <label>Your speaking voice</label>
+                        <div class="radio-row">
+                            <label class="radio-label"><input type="radio" name="ttsProvider" value="builtin"> This device's voices (free)</label>
+                            <label class="radio-label"><input type="radio" name="ttsProvider" value="deepgram"> Deepgram voice (paid)</label>
+                        </div>
+                        <p class="setting-hint">Your device's own voices cost nothing and work offline. On an iPad they are limited to Samantha and a set of joke voices, so a paid voice is the way to sound like yourself there.</p>
+                        <!-- Only the picker for the chosen backend is shown. Showing
+                             both at once is what made the voice settings read as
+                             duplicated. -->
+                        <div id="builtinVoiceRow">
+                            <label for="voiceSelect">Voice</label>
+                            <select id="voiceSelect"></select>
+                            <!-- This device's joke voices are hidden by default: on an
+                                 iPad they are 19 of the 68 on offer, so they are mostly
+                                 a longer scroll on the way to a real voice. Reversible,
+                                 because someone may actually want Whisper. -->
+                            <label class="checkbox-label"><input type="checkbox" id="showNoveltyVoicesInput"> Show this device's joke voices (Bahh, Boing, Zarvox…)</label>
+                            <div class="profiles-row profiles-actions">
+                                <button id="testVoiceBtn" type="button">Test</button>
+                            </div>
+                        </div>
+                        <div id="auraRow" hidden>
+                            <label for="auraVoiceSelect">Deepgram voice</label>
+                            <select id="auraVoiceSelect"></select>
+                            <div class="profiles-row profiles-actions">
+                                <button id="testAuraVoiceBtn" type="button">Test this voice</button>
+                            </div>
+                            <p id="auraVoiceStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
+                            <p class="setting-hint">Costs about 3 cents per 1,000 characters spoken — a few cents an hour of conversation. Phrases the app repeats (placeholders, your Express Panel buttons, starters and goodbyes) are remembered after the first time and cost nothing to say again. If the service cannot be reached, the app falls back to this device's own voice so you are never left unable to speak.</p>
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label>Practice partner voice</label>
+                        <p class="setting-hint">In Practice Mode, the AI plays the other person. Give them a different voice from yours so you can tell who's speaking. "Auto" picks a voice that isn't yours. This follows the choice above — the other person speaks through the same service you do.</p>
+                        <div id="builtinPartnerVoiceRow">
+                            <select id="partnerVoiceSelect" aria-label="Practice partner voice"></select>
+                            <div class="profiles-row profiles-actions">
+                                <button id="testPartnerVoiceBtn" type="button">Test</button>
+                            </div>
+                            <!-- Names the voice Test actually used. Worth the line only for
+                                 "Auto", where the choice is otherwise invisible — and it is the
+                                 default, so it is the case most likely to surprise. -->
+                            <p class="setting-hint" id="partnerVoiceStatus" hidden></p>
+                        </div>
+                        <div id="auraPartnerRow" hidden>
+                            <select id="auraPartnerVoiceSelect" aria-label="Practice partner's Deepgram voice"></select>
+                            <div class="profiles-row profiles-actions">
+                                <button id="testAuraPartnerVoiceBtn" type="button">Test partner voice</button>
+                            </div>
+                            <p id="auraPartnerVoiceStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="tab-panel" data-tab="input">
                     <div class="setting-group">
                         <label for="buttonSizeSlider">Button size</label>
                         <div class="slider-row">
@@ -363,26 +416,6 @@
                     <div class="setting-group">
                         <button id="resetSizingBtn" type="button" class="reset-sizing-btn">Reset buttons and gaps to default</button>
                         <p class="setting-hint">Restores button size, spacing, and the minimum spacing to their defaults. Does not change the keyboard or transcript separation (on the Keyguard Design tab).</p>
-                    </div>
-                    <div class="setting-group">
-                        <label for="voiceSelect">Voice</label>
-                        <select id="voiceSelect"></select>
-                        <!-- This device's joke voices are hidden by default: on an
-                             iPad they are 19 of the 68 on offer, so they are mostly
-                             a longer scroll on the way to a real voice. Reversible,
-                             because someone may actually want Whisper. -->
-                        <label class="checkbox-label"><input type="checkbox" id="showNoveltyVoicesInput"> Show this device's joke voices (Bahh, Boing, Zarvox…)</label>
-                        <button id="testVoiceBtn" type="button">Test</button>
-                    </div>
-                    <div class="setting-group">
-                        <label for="partnerVoiceSelect">Practice partner voice</label>
-                        <select id="partnerVoiceSelect"></select>
-                        <button id="testPartnerVoiceBtn" type="button">Test</button>
-                        <p class="setting-hint">In Practice Mode, the AI plays the other person. Give them a different voice from yours so you can tell who's speaking. "Auto" picks a voice that isn't yours.</p>
-                        <!-- Names the voice Test actually used. Worth the line only for
-                             "Auto", where the choice is otherwise invisible — and it is the
-                             default, so it is the case most likely to surprise. -->
-                        <p class="setting-hint" id="partnerVoiceStatus" hidden></p>
                     </div>
                     <div class="setting-group">
                         <label>Keyboard for typing</label>
@@ -439,9 +472,13 @@
                     <div class="setting-group">
                         <label class="checkbox-label">
                             <input type="checkbox" id="noSaveDefaultInput">
-                            Do not save conversations to my data folder
+                            <!-- Deliberately says nothing about WHERE conversations
+                                 are kept: on a tablet there is no folder to name, so
+                                 the old "to my data folder" wording described
+                                 something that does not exist there. -->
+                            Do not save my conversations
                         </label>
-                        <p class="setting-hint">When on, new conversations start private — nothing is written to your data folder. This sets the <em>starting</em> state; you can still turn saving on or off for the current conversation with the “Don't save” button in the Command Bar. Default is off (conversations are saved).</p>
+                        <p class="setting-hint">When on, new conversations start private — nothing from them is saved. This sets the <em>starting</em> state; you can still turn saving on or off for the current conversation with the “Don't save” button in the Command Bar. Default is off (conversations are saved).</p>
                     </div>
                     <div class="setting-group">
                         <label for="responsesPerCategoryInput">Suggestions per category</label>
@@ -604,7 +641,7 @@
                             <button id="copyErrorLogBtn" type="button">Copy</button>
                             <button id="clearErrorLogBtn" type="button">Clear</button>
                         </div>
-                        <p class="setting-hint">Errors grouped by conversation (newest first). <b>Copy</b> puts the full report on the clipboard — each conversation's transcript together with its errors — ready to paste into a bug report. Also written to <code>errors.log</code> in your data folder.</p>
+                        <p class="setting-hint">Errors grouped by conversation (newest first). <b>Copy</b> puts the full report on the clipboard — each conversation's transcript together with its errors — ready to paste into a bug report. Also written to an <code>errors.log</code> file alongside your data.</p>
                     </div>
                     <!-- Voice-list readout. Exists because a tablet has no console:
                          when a voice installed on the device does not show up in the
@@ -632,9 +669,6 @@
                     <p class="about-link"><a href="https://www.volksswitch.org" target="_blank" rel="noopener">Volksswitch.org</a></p>
                 </div>
             </div>
-        </div>
-        <div class="dialog-actions">
-            <button id="closeSettingsBtn">Close</button>
         </div>
     </dialog>
 

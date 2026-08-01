@@ -1,26 +1,26 @@
-/* AAC Conversation Assistant — service worker
+﻿/* AAC Conversation Assistant â€” service worker
  *
  * Strategy:
  *   - Same-origin GET requests: network-first, falling back to cache when
  *     offline. Network-first keeps the app fresh whenever GitHub Pages
  *     redeploys; the cache only serves when the network is unavailable.
  *   - Cross-origin requests (the Claude API at api.anthropic.com, the speech
- *     services, etc.) are never intercepted — they pass straight through.
+ *     services, etc.) are never intercepted â€” they pass straight through.
  *
  * Bump CACHE_VERSION whenever the precached shell changes so old caches are
  * cleaned out on activate.
  */
-// The deploy workflow replaces 53c846d with the commit sha, so EVERY deploy gets
+// The deploy workflow replaces e905113 with the commit sha, so EVERY deploy gets
 // its own cache name and activate() clears the previous shell. Without that, all
 // the pushes inside one dev cycle shared a cache key (they share an APP_VERSION),
 // and a redeploy could keep serving the shell precached by an earlier one. A copy
 // served straight from the working tree keeps the placeholder, which is a valid
 // (and stable) cache name for local development.
-const CACHE_VERSION = 'aac-v0.5.99-53c846d';
+const CACHE_VERSION = 'aac-v0.6.0-e905113';
 // Cache Storage is scoped to the ORIGIN, not the path, and activate() below
 // deletes every cache that is not this one. Two Conversant deployments on the same
 // GitHub Pages origin (/conversant-aac/ and the /conversant-aac-ipad/ trial) would
-// therefore delete each other's shell every time the user switched between them —
+// therefore delete each other's shell every time the user switched between them â€”
 // self-healing, since fetch is network-first, but it would look like a bug and
 // would break offline start for whichever was used last. Including the scope's own
 // path segment gives each deployment its own cache namespace.
@@ -116,7 +116,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     // `cache: 'no-cache'` forces revalidation with the server (ETag) instead of
     // letting the browser's HTTP cache serve a stale copy within GitHub Pages'
-    // max-age=600 window — so a launch while online always gets the latest.
+    // max-age=600 window â€” so a launch while online always gets the latest.
     fetch(new Request(request, { cache: 'no-cache' }))
       .then((response) => {
         // Cache a copy of successful responses for offline fallback.

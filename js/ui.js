@@ -624,6 +624,7 @@ export function applyControlIcons() {
     setIconButton(document.getElementById('endConversationBtn'), 'endChat', 'End conversation');
     setIconButton(document.getElementById('privacyBtn'), 'noSave', "Don't save this conversation");
     setIconButton(document.getElementById('settingsBtn'), 'settings', 'Settings');
+    setIconButton(document.getElementById('closeSettingsBtn'), 'close', 'Close settings');
     setIconButton(document.getElementById('regenerateBtn'), 'shuffle', 'New 4 — different options');
     setIconButton(document.getElementById('speakBtn'), 'speak', 'Speak');
     setIconButton(document.getElementById('reframeBtn'), 'reframe', 'Reframe — new options from this');

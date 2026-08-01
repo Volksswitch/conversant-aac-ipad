@@ -1400,9 +1400,10 @@ dialog::backdrop {
    UI changes are visible behind it. */
 #settingsHeader {
     display: flex;
-    align-items: baseline;
+    /* center, not baseline: the row now holds a button as well as the title. */
+    align-items: center;
     justify-content: space-between;
-    padding: 0.6rem 1rem;
+    padding: 0.3rem 0.4rem 0.3rem 1rem;
     background: #2c3e50;
     color: #fff;
     user-select: none;
@@ -1412,6 +1413,40 @@ dialog::backdrop {
 #settingsTitle {
     font-size: 1rem;
     font-weight: 600;
+}
+
+/* The X that dismisses Settings. Exempted from the global --btn-min-dim floor
+   and from .icon-btn's min-width: those exist to make the CONVERSATION surface
+   keyguard-friendly, and honoring them here would make the title bar as tall as
+   the footer this replaced — i.e. it would give back the space it just saved.
+   Settings is the keyguard's open window, so a smaller target is the same trade
+   already made for the tab strip. The id qualifier is what beats the global
+   `button:not(...)` rule. */
+#settingsHeader #closeSettingsBtn {
+    min-height: 2.1rem;
+    min-width: 2.1rem;
+    width: 2.1rem;
+    height: 2.1rem;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+#settingsHeader #closeSettingsBtn .icon {
+    width: 1.35rem;
+    height: 1.35rem;
+}
+
+#settingsHeader #closeSettingsBtn:hover,
+#settingsHeader #closeSettingsBtn:focus-visible {
+    background: rgba(255, 255, 255, 0.18);
 }
 
 #settingsLayout {
@@ -1597,8 +1632,12 @@ dialog select {
     background: #f5f5f5;
     cursor: pointer;
 }
-#deepgramRow { margin-top: 0.75rem; }
-#deepgramRow[hidden] { display: none; }
+/* The per-backend voice pickers on the Speech tab. `hidden` alone loses to the
+   surrounding layout rules, so state it, as the key row above always did. */
+#auraRow[hidden],
+#auraPartnerRow[hidden],
+#builtinVoiceRow[hidden],
+#builtinPartnerVoiceRow[hidden] { display: none; }
 #apiKeyRow #apiKeyInput {
     /* The key is masked to dots, so it needs no room to read — keep it short so
        the Paste button shows fully and the column isn't crowded (Ken). */
@@ -1952,25 +1991,9 @@ label.radio-label input[type="radio"] {
     text-decoration: underline;
 }
 
-/* Dialog footer */
-
-.dialog-actions {
-    display: flex;
-    gap: var(--grid-gap);
-    justify-content: flex-end;
-    padding: var(--grid-gap);
-    border-top: 1px solid #ddd;
-    background: #f9f9f9;
-    flex-shrink: 0;
-}
-
-.dialog-actions button {
-    padding: 0.4rem 1rem;
-    border-radius: 4px;
-    border: 1px solid #ccc;
-    cursor: pointer;
-    font-size: 0.9rem;
-}
+/* (The Settings footer row is gone — its one button is now the X in the title
+   bar, see #settingsHeader #closeSettingsBtn. The danger-confirm dialog styles
+   its own buttons, so nothing else needed this.) */
 
 /* --- Worldview "About Me" questionnaire --- */
 
