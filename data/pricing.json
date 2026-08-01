@@ -2,5 +2,7 @@
   "model": "claude-sonnet-4-6",
   "inputCostPerMillionTokens": 3,
   "outputCostPerMillionTokens": 15,
-  "lastVerified": "2025-06-11"
+  "deepgramSttCostPerHour": 0.46,
+  "deepgramTtsCostPer1kChars": 0.03,
+  "lastVerified": "2026-07-31"
 }

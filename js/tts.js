@@ -1,5 +1,76 @@
+import * as aura from './tts-deepgram.js';
+
 const synth = window.speechSynthesis;
 let selectedVoiceURI = null;
+
+// --- Voice provider (Ken, July 31 2026) ---
+//
+// Two backends behind ONE seam, on the same reasoning as stt.js: the browser's own
+// speechSynthesis (free, works everywhere, the default), and Deepgram Aura (the
+// user's own key) for platforms whose built-in voices are unusable — measured on
+// iPadOS, where the only ordinary en-US voice is Samantha and everything else is a
+// novelty voice or a one-per-language minimum-quality voice.
+//
+// EVERYTHING THAT MATTERS STAYS IN THIS FILE, not in the backend: the speaking-state
+// broadcast that the STT echo filter depends on, the token that stops a superseded
+// utterance reporting a spurious end, and the fallback. A backend only produces
+// sound.
+let provider = 'builtin';
+let auraModel = aura.DEFAULT_VOICE;
+let auraVoice = null;
+// Reported when the paid voice fails and the browser voice speaks instead. The app
+// wires this to the error log, so a silent downgrade is still visible afterwards.
+let onFallback = null;
+
+// Held at module scope rather than captured when the voice is built: the backend is
+// created ONCE and reused, so wiring these in at creation time would silently pin
+// the first key source forever and a later setProvider() call would appear to do
+// nothing. The voice reads through these on every utterance instead.
+let auraGetKey = () => '';
+let auraOnBilled = () => {};
+
+export function setProvider(name, opts = {}) {
+    provider = name === 'deepgram' ? 'deepgram' : 'builtin';
+    if (opts.model) auraModel = opts.model;
+    if (opts.getKey) auraGetKey = opts.getKey;
+    if (opts.onBilled) auraOnBilled = opts.onBilled;
+    if (provider === 'deepgram' && !auraVoice) {
+        auraVoice = aura.createVoice({
+            getKey: () => auraGetKey(),
+            onBilled: (n) => auraOnBilled(n),
+        });
+    }
+}
+
+export function getProvider() {
+    return provider;
+}
+
+export function setAuraModel(model) {
+    if (model) auraModel = model;
+}
+
+export function getAuraModel() {
+    return auraModel;
+}
+
+export function onFallbackToBrowser(cb) {
+    onFallback = cb;
+}
+
+// iOS will not start audio outside a user gesture, and placeholders fire on timers,
+// so the audio path has to be unlocked during some earlier tap or the app goes
+// silent exactly when it is trying to hold the floor. Safe to call on any tap.
+export function unlockAudio() {
+    if (auraVoice) auraVoice.unlock();
+}
+
+export function testAuraVoice(key, model, phrase = 'This is how I will sound during our conversation.') {
+    if (!auraVoice) {
+        auraVoice = aura.createVoice({ getKey: () => key });
+    }
+    return auraVoice.test(key, model, phrase);
+}
 
 // Speaking-state broadcast. Anything that needs to know when the app is
 // producing audio subscribes here — notably the STT layer, which uses the
@@ -39,13 +110,11 @@ function findVoice(voiceURI) {
     return synth.getVoices().find(v => v.voiceURI === uri) || null;
 }
 
-// speak(text, opts). opts.voiceURI overrides the user's selected voice for this
-// utterance — used by Practice Mode so the AI partner speaks in a DISTINCT voice
-// from the user, making partner-vs-self clear aurally.
-export function speak(text, opts = {}) {
+// The browser's own voice. Kept as its own function because it is BOTH one of the
+// two providers and the fallback for the other one.
+function speakBuiltin(text, opts, myToken) {
     return new Promise((resolve) => {
         if (synth.speaking) synth.cancel();
-        const myToken = ++speakToken;
         const utterance = new SpeechSynthesisUtterance(text);
         const voice = findVoice(opts.voiceURI);
         if (voice) utterance.voice = voice;
@@ -60,17 +129,55 @@ export function speak(text, opts = {}) {
         };
         utterance.onend = finish;
         utterance.onerror = finish;
-        // Announce the phrase on every start (even back-to-back placeholders) so the
-        // STT echo filter always knows the current spoken text.
-        speaking = true;
-        notifySpeaking(text);
         synth.speak(utterance);
     });
+}
+
+/*
+ * speak(text, opts). opts.voiceURI overrides the user's selected browser voice for
+ * this utterance; opts.auraModel does the same for the paid voice. Practice Mode
+ * passes both, so the AI partner sounds distinct from the user whichever provider
+ * is in use.
+ *
+ * The speaking-state broadcast happens HERE, once, around whichever backend runs —
+ * including a fallback. The STT echo filter uses that text to recognize and discard
+ * the app's own speech, so a path that spoke without announcing itself would make
+ * the app transcribe itself as the partner.
+ */
+export function speak(text, opts = {}) {
+    const myToken = ++speakToken;
+    // Announce the phrase on every start (even back-to-back placeholders) so the
+    // STT echo filter always knows the current spoken text.
+    speaking = true;
+    notifySpeaking(text);
+
+    if (provider !== 'deepgram' || !auraVoice) {
+        return speakBuiltin(text, opts, myToken);
+    }
+
+    return auraVoice.speak(text, { model: opts.auraModel || auraModel })
+        .then(() => {
+            if (myToken === speakToken && speaking) {
+                speaking = false;
+                notifySpeaking(null);
+            }
+        })
+        .catch((err) => {
+            // Superseded or deliberately cancelled: cancel() has already reported
+            // the end, and falling back would speak something the user stopped.
+            if (myToken !== speakToken) return;
+            // The paid voice failed. Say it anyway with the browser's own voice —
+            // the one outcome that is never acceptable is that the user pressed a
+            // button and nothing was said.
+            if (onFallback) onFallback(err && err.message ? err.message : String(err));
+            return speakBuiltin(text, opts, myToken);
+        });
 }
 
 export function cancel() {
     speakToken++; // invalidate any pending utterance's finish handler
     synth.cancel();
+    if (auraVoice) auraVoice.cancel();
     if (speaking) {
         speaking = false;
         notifySpeaking(null);

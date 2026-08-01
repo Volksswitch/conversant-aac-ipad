@@ -285,7 +285,7 @@ const SETTINGS_DIR = 'settings';
 // `deepgramKey` sits here with `apiKey` for the same reason (SEC-6): a key must
 // never be written to a data folder that may be cloud-synced, nor carried in a
 // backup file the user might send someone. Both are re-entered per device.
-const PROFILE_EXCLUDE = ['apiKey', 'deepgramKey', 'usageInputTokens', 'usageOutputTokens', 'usageSttSeconds', 'usageSince', 'lastSeenVersion', 'activeSettingsProfile'];
+const PROFILE_EXCLUDE = ['apiKey', 'deepgramKey', 'usageInputTokens', 'usageOutputTokens', 'usageSttSeconds', 'usageTtsCharacters', 'usageSince', 'lastSeenVersion', 'activeSettingsProfile'];
 
 // Which saved profile is currently in effect (machine-local; '' when none / custom
 // unsaved settings). Set when a profile is saved or loaded; cleared if that profile
@@ -602,6 +602,45 @@ export function loadDeepgramKey() {
 export function saveDeepgramKey(key) {
     const settings = loadSettings();
     settings.deepgramKey = key;
+    saveSettings(settings);
+}
+
+// Which voice to speak WITH: 'builtin' (the browser's own, free) or 'deepgram'
+// (paid Aura, the user's own key — the same key as transcription). Default builtin
+// for the same reason: nothing should require a signup to try, and on Windows the
+// built-in voices are fine. It exists because on iPadOS they are not — the only
+// ordinary en-US voice on offer there is Samantha, the rest being novelty voices or
+// one-per-language minimum-quality voices, with no upgrade reachable from the web.
+export function loadTtsProvider() {
+    return loadSettings().ttsProvider || 'builtin';
+}
+
+export function saveTtsProvider(provider) {
+    const settings = loadSettings();
+    settings.ttsProvider = provider === 'deepgram' ? 'deepgram' : 'builtin';
+    saveSettings(settings);
+}
+
+// The Aura voice model id (e.g. 'aura-2-thalia-en'). Null means "use the default".
+export function loadAuraVoice() {
+    return loadSettings().auraVoice || null;
+}
+
+export function saveAuraVoice(model) {
+    const settings = loadSettings();
+    settings.auraVoice = model || null;
+    saveSettings(settings);
+}
+
+// The Aura voice for the Practice Mode partner; null means "pick one that isn't
+// the user's own".
+export function loadAuraPartnerVoice() {
+    return loadSettings().auraPartnerVoice || null;
+}
+
+export function saveAuraPartnerVoice(model) {
+    const settings = loadSettings();
+    settings.auraPartnerVoice = model || null;
     saveSettings(settings);
 }
 
@@ -1231,6 +1270,7 @@ export function resetUsage() {
     settings.usageOutputTokens = 0;
     settings.usageSince = new Date().toISOString();
     settings.usageSttSeconds = 0;
+    settings.usageTtsCharacters = 0;
     saveSettings(settings);
 }
 
@@ -1249,6 +1289,22 @@ export function addSttSeconds(seconds) {
     const settings = loadSettings();
     if (!settings.usageSince) settings.usageSince = new Date().toISOString();
     settings.usageSttSeconds = (settings.usageSttSeconds ?? 0) + seconds;
+    saveSettings(settings);
+}
+
+// Characters sent to a paid voice service. Counted for the same reason as the
+// transcription seconds: it is billed per character, and repeated phrases served
+// from the cache cost nothing — so a raw "words spoken" figure would overstate it
+// and the only honest number is what was actually submitted.
+export function loadTtsCharacters() {
+    return loadSettings().usageTtsCharacters ?? 0;
+}
+
+export function addTtsCharacters(characters) {
+    if (!(characters > 0)) return;
+    const settings = loadSettings();
+    if (!settings.usageSince) settings.usageSince = new Date().toISOString();
+    settings.usageTtsCharacters = (settings.usageTtsCharacters ?? 0) + characters;
     saveSettings(settings);
 }
 

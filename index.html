@@ -186,6 +186,35 @@
                             <p class="setting-hint">Sign up at <a href="https://deepgram.com" target="_blank" rel="noopener">deepgram.com</a> — new accounts include $200 of free credit, which is several hundred hours, and no card is needed to start. Create a key in the console under Settings → API Keys. Costs about 46 cents an hour of speech; the app only sends audio while someone is actually talking, so quiet stretches are free.</p>
                         </div>
                     </div>
+                    <!-- The voice the app speaks WITH. The browser's own voices are
+                         free and fine on Windows. On an iPad they are not: measured
+                         July 31 2026, the only ordinary en-US voice on offer is
+                         Samantha, the rest being 1980s novelty voices or
+                         one-per-language minimum-quality voices, and installing
+                         better ones does not make them reachable from a web app. -->
+                    <div class="setting-group">
+                        <label>Your speaking voice</label>
+                        <div class="radio-row">
+                            <label class="radio-label"><input type="radio" name="ttsProvider" value="builtin"> This device's voices (free)</label>
+                            <label class="radio-label"><input type="radio" name="ttsProvider" value="deepgram"> Deepgram voice (paid)</label>
+                        </div>
+                        <p class="setting-hint">Your device's own voices cost nothing and work offline. On an iPad they are limited to Samantha and a set of joke voices, so a paid voice is the way to sound like yourself there. Uses the <b>same Deepgram key</b> as transcription above.</p>
+                        <div id="auraRow" hidden>
+                            <label for="auraVoiceSelect">Deepgram voice</label>
+                            <select id="auraVoiceSelect"></select>
+                            <div class="profiles-row profiles-actions">
+                                <button id="testAuraVoiceBtn" type="button">Test this voice</button>
+                            </div>
+                            <p id="auraVoiceStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
+                            <label for="auraPartnerVoiceSelect">Practice partner's Deepgram voice</label>
+                            <select id="auraPartnerVoiceSelect"></select>
+                            <div class="profiles-row profiles-actions">
+                                <button id="testAuraPartnerVoiceBtn" type="button">Test partner voice</button>
+                            </div>
+                            <p id="auraPartnerVoiceStatus" class="api-key-status" role="status" aria-live="polite" hidden></p>
+                            <p class="setting-hint">Costs about 3 cents per 1,000 characters spoken — a few cents an hour of conversation. Phrases the app repeats (placeholders, your Express Panel buttons, starters and goodbyes) are remembered after the first time and cost nothing to say again. If the service cannot be reached, the app falls back to this device's own voice so you are never left unable to speak.</p>
+                        </div>
+                    </div>
                     <div class="setting-group">
                         <label>Data Folder</label>
                         <div id="dataFolderRow">

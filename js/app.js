@@ -23,6 +23,7 @@ import * as practiceScenarios from './practice-scenarios.js';
 import * as dataTransfer from './data-transfer.js';
 import * as platform from './platform.js';
 import * as sttDeepgram from './stt-deepgram.js';
+import * as ttsDeepgram from './tts-deepgram.js';
 import { confirmDanger } from './confirm-dialog.js';
 
 // The platform verdict on partner capture (see platform.js), or null when capture
@@ -71,7 +72,7 @@ const APP_VERSION = '0.5.99';
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = '1de1601';
+const BUILD_STAMP = '44ae577';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
@@ -406,6 +407,15 @@ function initApp() {
         if (savedURI) tts.setVoice(savedURI);
     });
 
+    applyTtsProvider();
+    // A downgrade to the device's own voice is not silent: the user still hears
+    // their words, but they hear them in the wrong voice, and the reason belongs in
+    // the error log (which also trips the transcript's red wash) rather than only in
+    // the console.
+    tts.onFallbackToBrowser((reason) => {
+        storage.logError('voice', `Paid voice unavailable, used this device's voice instead: ${reason}`);
+    });
+
     llm.onUsage((input, output) => storage.addUsageTokens(input, output));
 
     // Load the worldview registry + profile so generation can inject the
@@ -527,6 +537,40 @@ function showDeepgramStatus(kind, msg) {
     el.hidden = false;
     el.textContent = msg;
     el.className = 'api-key-status ' + (kind === 'ok' ? 'ok' : kind === 'checking' ? 'checking' : 'warn');
+}
+
+// Point tts.js at the chosen voice backend. Called at startup and whenever the
+// setting changes — unlike transcription, this takes effect immediately, because
+// tts.js routes per utterance instead of building a source once.
+function applyTtsProvider() {
+    tts.setProvider(storage.loadTtsProvider(), {
+        model: storage.loadAuraVoice() || ttsDeepgram.DEFAULT_VOICE,
+        // Read at speak time, so a key pasted into Settings works without a reload.
+        getKey: () => storage.loadDeepgramKey() || '',
+        onBilled: (characters) => storage.addTtsCharacters(characters),
+    });
+    tts.setAuraModel(storage.loadAuraVoice() || ttsDeepgram.DEFAULT_VOICE);
+}
+
+// Same shape as showDeepgramStatus, for whichever of the two Aura voice pickers is
+// being tested.
+function showAuraStatus(which, kind, msg) {
+    const el = document.getElementById(which === 'partner' ? 'auraPartnerVoiceStatus' : 'auraVoiceStatus');
+    if (!el) return;
+    if (!msg) { el.hidden = true; el.textContent = ''; el.className = 'api-key-status'; return; }
+    el.hidden = false;
+    el.textContent = msg;
+    el.className = 'api-key-status ' + (kind === 'ok' ? 'ok' : kind === 'checking' ? 'checking' : 'warn');
+}
+
+// The Aura voice the Practice partner speaks in: the user's chosen partner voice,
+// or the first voice in the list that is not the user's own, so the two sides are
+// audibly different out of the box — the same rule as the browser-voice path.
+function pickAuraPartnerVoice(chosen = storage.loadAuraPartnerVoice()) {
+    if (chosen) return chosen;
+    const own = storage.loadAuraVoice() || ttsDeepgram.DEFAULT_VOICE;
+    const other = ttsDeepgram.VOICES.find((v) => v.id !== own);
+    return other ? other.id : own;
 }
 
 function showApiKeyStatus(kind, msg) {
@@ -676,6 +720,10 @@ async function handleStart() {
     // itself is fired from an async recognizer callback where WebKit would refuse
     // to start audio (see chime.unlock).
     chime.unlock();
+    // Same reason, for the paid voice: iOS refuses to start audio outside a user
+    // gesture, and placeholders fire on TIMERS — so without this the app would go
+    // silent exactly when it is trying to hold the floor.
+    tts.unlockAudio();
     // Check for a newer deployed version when the session starts. If one is
     // found the worker activates and the controllerchange handler in index.html
     // reloads the page; when nothing is new this is a cheap no-op.
@@ -1352,7 +1400,9 @@ async function advancePracticePartner() {
     if (token !== generationToken || !practiceMode) return;   // superseded (ended/paused)
     // Speak the partner's line in the DISTINCT partner voice. The mic is off in
     // practice, so there's no echo to filter.
-    await tts.speak(line, { voiceURI: pickPartnerVoice() });
+    // Both voices are passed; tts.js uses whichever matches the active provider, so
+    // the partner stays distinct from the user on either one.
+    await tts.speak(line, { voiceURI: pickPartnerVoice(), auraModel: pickAuraPartnerVoice() });
     if (token !== generationToken || !practiceMode) return;
     // Feed the spoken line through the normal pipeline (logs the partner turn,
     // updates the engine, generates the user's response palette). Mic-free.
@@ -2571,11 +2621,25 @@ async function loadPricing() {
 async function updateUsageDisplay() {
     const usage = storage.loadUsage();
     const pricing = await loadPricing();
+    // The AI is not the only thing the user pays for once the paid backends are in
+    // use: transcription bills per second of audio and the voice bills per
+    // character. Showing only the token cost would understate the bill on exactly
+    // the platform (iPad) where both paid services are the normal configuration.
+    const sttSeconds = storage.loadSttSeconds();
+    const ttsCharacters = storage.loadTtsCharacters();
     const cost = (usage.inputTokens * pricing.inputCostPerMillionTokens / 1_000_000)
-               + (usage.outputTokens * pricing.outputCostPerMillionTokens / 1_000_000);
+               + (usage.outputTokens * pricing.outputCostPerMillionTokens / 1_000_000)
+               + (sttSeconds / 3600) * (pricing.deepgramSttCostPerHour ?? 0)
+               + (ttsCharacters / 1000) * (pricing.deepgramTtsCostPer1kChars ?? 0);
     document.getElementById('usageCost').textContent = `$${cost.toFixed(2)}`;
     const sinceDate = new Date(usage.since).toLocaleDateString();
-    document.getElementById('usageSince').textContent = `since ${sinceDate}`;
+    // Name the paid extras only when they have actually been used, so a Windows
+    // user on the free backends sees exactly what they saw before.
+    const extras = [];
+    if (sttSeconds > 0) extras.push(`${Math.round(sttSeconds / 60)} min heard`);
+    if (ttsCharacters > 0) extras.push(`${ttsCharacters.toLocaleString()} characters spoken`);
+    document.getElementById('usageSince').textContent =
+        `since ${sinceDate}` + (extras.length ? ` · ${extras.join(' · ')}` : '');
 }
 
 // Group the error log by conversation, most-recent conversation first. Errors
@@ -3331,6 +3395,89 @@ function openSettings() {
             showDeepgramStatus(res.ok ? 'ok' : 'warn', res.message);
         };
     }
+
+    // --- Deepgram voice (Aura) ---
+    // Unlike the transcription provider, this one takes effect immediately: tts.js
+    // routes per utterance rather than building a source once at startup, so there
+    // is nothing to reload.
+    const auraRow = document.getElementById('auraRow');
+    const auraVoiceSelect = document.getElementById('auraVoiceSelect');
+    const auraPartnerVoiceSelect = document.getElementById('auraPartnerVoiceSelect');
+    const fillAuraSelect = (select, selected, autoLabel) => {
+        if (!select) return;
+        select.innerHTML = '';
+        if (autoLabel) {
+            const auto = document.createElement('option');
+            auto.value = '';
+            auto.textContent = autoLabel;
+            select.appendChild(auto);
+        }
+        ttsDeepgram.VOICES.forEach((v) => {
+            const opt = document.createElement('option');
+            opt.value = v.id;
+            opt.textContent = `${v.name} — ${v.detail}`;
+            if (v.id === selected) opt.selected = true;
+            select.appendChild(opt);
+        });
+    };
+    const reflectTtsProvider = () => {
+        const provider = storage.loadTtsProvider();
+        const radio = document.querySelector(`input[name="ttsProvider"][value="${provider}"]`);
+        if (radio) radio.checked = true;
+        if (auraRow) auraRow.hidden = provider !== 'deepgram';
+    };
+    fillAuraSelect(auraVoiceSelect, storage.loadAuraVoice() || ttsDeepgram.DEFAULT_VOICE);
+    fillAuraSelect(auraPartnerVoiceSelect, storage.loadAuraPartnerVoice(), 'Auto (a voice that isn\'t yours)');
+    reflectTtsProvider();
+    document.querySelectorAll('input[name="ttsProvider"]').forEach((radio) => {
+        radio.onchange = () => {
+            if (!radio.checked) return;
+            storage.saveTtsProvider(radio.value);
+            reflectTtsProvider();
+            applyTtsProvider();
+            if (radio.value === 'deepgram' && !(storage.loadDeepgramKey() || '').trim()) {
+                showAuraStatus('own', 'warn', 'Add your Deepgram key above, then tap Test this voice.');
+            } else {
+                showAuraStatus('own', null, '');
+            }
+        };
+    });
+    if (auraVoiceSelect) {
+        auraVoiceSelect.onchange = () => {
+            storage.saveAuraVoice(auraVoiceSelect.value);
+            tts.setAuraModel(auraVoiceSelect.value);
+            showAuraStatus('own', null, '');
+        };
+    }
+    if (auraPartnerVoiceSelect) {
+        auraPartnerVoiceSelect.onchange = () => {
+            storage.saveAuraPartnerVoice(auraPartnerVoiceSelect.value);
+            showAuraStatus('partner', null, '');
+        };
+    }
+    // Test SPEAKS rather than just checking the key: a rejected key, a mistyped
+    // voice id and a browser that will not start audio all fail differently, and
+    // hearing it is the only check that covers all three. It is also a user gesture,
+    // which is what unlocks audio on iOS.
+    const wireAuraTest = (btn, which, getModel, phrase) => {
+        if (!btn) return;
+        btn.onclick = async () => {
+            tts.unlockAudio();
+            const key = (keyFieldValue(deepgramKeyInput) ?? (storage.loadDeepgramKey() || '')).trim();
+            if (!key) { showAuraStatus(which, 'warn', 'Enter your Deepgram key above first.'); return; }
+            btn.disabled = true;
+            showAuraStatus(which, 'checking', 'Speaking…');
+            const res = await tts.testAuraVoice(key, getModel(), phrase);
+            btn.disabled = false;
+            showAuraStatus(which, res.ok ? 'ok' : 'warn', res.message);
+        };
+    };
+    wireAuraTest(document.getElementById('testAuraVoiceBtn'), 'own',
+        () => (auraVoiceSelect && auraVoiceSelect.value) || ttsDeepgram.DEFAULT_VOICE,
+        'This is how I will sound during our conversation.');
+    wireAuraTest(document.getElementById('testAuraPartnerVoiceBtn'), 'partner',
+        () => pickAuraPartnerVoice(auraPartnerVoiceSelect && auraPartnerVoiceSelect.value),
+        'Hello — in Practice Mode, this is the voice of the person you are talking to.');
 
     voiceSelect.onchange = () => {
         const voiceURI = voiceSelect.value || null;
