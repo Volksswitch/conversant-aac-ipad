@@ -644,6 +644,20 @@ export function saveAuraPartnerVoice(model) {
     saveSettings(settings);
 }
 
+// Whether to list this device's novelty voices (Bahh, Boing, Zarvox…). Hidden by
+// default: on an iPad they are 19 of 68 entries, and for someone choosing the voice
+// they will speak as, they are a longer scroll rather than a wider choice. The
+// setting exists so the hiding is reversible — someone may genuinely want Whisper.
+export function loadShowNoveltyVoices() {
+    return loadSettings().showNoveltyVoices === true;
+}
+
+export function saveShowNoveltyVoices(show) {
+    const settings = loadSettings();
+    settings.showNoveltyVoices = !!show;
+    saveSettings(settings);
+}
+
 export function loadVoiceURI() {
     return loadSettings().voiceURI || null;
 }

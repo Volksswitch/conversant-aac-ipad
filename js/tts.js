@@ -117,7 +117,15 @@ function speakBuiltin(text, opts, myToken) {
         if (synth.speaking) synth.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         const voice = findVoice(opts.voiceURI);
-        if (voice) utterance.voice = voice;
+        // Assigning a voice the engine rejects throws. It must not escape: this
+        // function is the last resort, and an exception here would leave `speaking`
+        // true forever with no matching end event — which would tell the STT echo
+        // filter the app is permanently talking and suppress every silence
+        // checkpoint from then on. Better a voice we did not ask for than a mic that
+        // never fires again.
+        try {
+            if (voice) utterance.voice = voice;
+        } catch { /* fall through with the engine's default voice */ }
         const finish = () => {
             // Only report the end if no newer speak()/cancel() superseded this
             // utterance — otherwise we'd report "not speaking" mid-utterance.
@@ -129,7 +137,13 @@ function speakBuiltin(text, opts, myToken) {
         };
         utterance.onend = finish;
         utterance.onerror = finish;
-        synth.speak(utterance);
+        // Same reasoning: if the engine refuses the utterance outright, report the
+        // end rather than leaving the speaking state latched on.
+        try {
+            synth.speak(utterance);
+        } catch {
+            finish();
+        }
     });
 }
 
@@ -227,6 +241,46 @@ export function voiceQuality(voice) {
         if (pattern.test(hay)) return label;
     }
     return '';
+}
+
+// --- Novelty voices (Ken, July 31 2026) ---
+//
+// Measured on iPadOS: 19 of the 68 voices on offer are Apple's 1980s-era set —
+// Bahh, Boing, Zarvox, Trinoids and friends. For someone choosing the voice they
+// will SPEAK AS, a list where a quarter of the entries are gag voices is not a
+// richer choice, it is a longer scroll to get past — and scrolling is a real cost
+// for the motor control this app is built around.
+//
+// MATCHED BY EXPLICIT ID, NOT BY PREFIX, and that is deliberate. They all live
+// under com.apple.speech.synthesis.voice.*, but so does Alex — a genuinely good
+// macOS voice — so a prefix rule would hide a voice someone might actually want.
+// This is exactly the roster measured on the device, nothing inferred.
+//
+// Hiding is REVERSIBLE: Settings has a checkbox to show them again, because a user
+// may legitimately want Whisper, and a list that silently omits something offers no
+// way to discover that it did.
+const NOVELTY_VOICE_IDS = new Set([
+    'Albert', 'BadNews', 'Bahh', 'Bells', 'Boing', 'Bubbles', 'Cellos', 'Deranged',
+    'Fred', 'GoodNews', 'Hysterical', 'Junior', 'Kathy', 'Organ', 'Princess',
+    'Ralph', 'Trinoids', 'Whisper', 'Zarvox',
+]);
+
+export function isNoveltyVoice(voice) {
+    if (!voice || !voice.voiceURI) return false;
+    const m = /^com\.apple\.speech\.synthesis\.voice\.([A-Za-z]+)$/.exec(voice.voiceURI);
+    return !!m && NOVELTY_VOICE_IDS.has(m[1]);
+}
+
+// The voices to offer, with the novelty ones dropped unless the user asked to see
+// them. Everything that lists or auto-picks a voice goes through this, so the
+// pickers and Practice Mode's Auto can never disagree about what is on offer.
+export function usableVoices(includeNovelty = false) {
+    const all = getVoices();
+    if (includeNovelty) return all;
+    const kept = all.filter((v) => !isNoveltyVoice(v));
+    // Never hide everything: if a device somehow offers nothing but novelty voices,
+    // a voice that sounds silly beats no voice at all.
+    return kept.length ? kept : all;
 }
 
 // The one label both voice pickers use, so they can never drift apart. The tier

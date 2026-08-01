@@ -72,7 +72,7 @@ const APP_VERSION = '0.5.99';
 // when start-up is what's broken, there was no way to tell a new build from a
 // cached old one (Ken, July 30 2026). This shows on the pre-start screen, before
 // anything can go wrong.
-const BUILD_STAMP = '44ae577';
+const BUILD_STAMP = '53c846d';
 const BUILD_ID = BUILD_STAMP.startsWith('@@') ? 'dev' : BUILD_STAMP;
 
 const conversationHistory = [];
@@ -1260,7 +1260,11 @@ function resumeOrIdle() {
 // currently showing in the select rather than the last-saved one.
 function pickPartnerVoice(chosen = storage.loadPartnerVoice()) {
     if (chosen) return chosen;
-    const voices = tts.getVoices();
+    // Auto never lands on a novelty voice, whatever the user's show/hide choice —
+    // that setting governs what they may CHOOSE, not what the app picks for them.
+    // Before this, on an iPad, every en-US voice except the user's own was a gag
+    // voice, so the practice partner spoke as Albert or Zarvox.
+    const voices = tts.usableVoices(false);
     if (!voices.length) return undefined;
 
     // Resolve what the user's voice ACTUALLY is before excluding it. When Voice is
@@ -1270,10 +1274,14 @@ function pickPartnerVoice(chosen = storage.loadPartnerVoice()) {
     // partner came out sounding identical to the user (Ken, July 31 2026, on the
     // iPad). `default` is the flag that marks it; the first voice is the fallback
     // where nothing is flagged.
+    // Resolved against the FULL list, not the filtered one: if the user has turned
+    // the joke voices back on and chosen Whisper, that is still the voice we must
+    // avoid sounding like, even though it is not a candidate for the partner.
+    const all = tts.getVoices();
     const ownURI = tts.getSelectedVoiceURI();
-    const own = voices.find(v => v.voiceURI === ownURI)
-        || voices.find(v => v.default)
-        || voices[0];
+    const own = all.find(v => v.voiceURI === ownURI)
+        || all.find(v => v.default)
+        || all[0];
 
     // Prefer a different voice IN THE SAME LANGUAGE. "Any other voice" is fine with
     // the three or four a desktop offers, but an iPad carries dozens across many
@@ -2489,7 +2497,7 @@ function updateKeyboardPositionGroups() {
 
 function populateVoiceSelect() {
     const select = document.getElementById('voiceSelect');
-    const voices = tts.getVoices();
+    const voices = tts.usableVoices(storage.loadShowNoveltyVoices());
     const savedURI = storage.loadVoiceURI();
     select.innerHTML = '';
 
@@ -2512,7 +2520,7 @@ function populateVoiceSelect() {
 function populatePartnerVoiceSelect() {
     const select = document.getElementById('partnerVoiceSelect');
     if (!select) return;
-    const voices = tts.getVoices();
+    const voices = tts.usableVoices(storage.loadShowNoveltyVoices());
     const saved = storage.loadPartnerVoice();
     select.innerHTML = '';
 
@@ -2937,9 +2945,14 @@ function voiceDiagnosticLines() {
         `Voices reported: ${voices.length}`,
         '',
     ];
+    // The diagnostic lists EVERY voice, including ones the pickers hide — its job is
+    // to answer "why is this voice not in my list", which it could not do if it
+    // applied the same filter. Hidden ones are marked instead.
+    const showNovelty = storage.loadShowNoveltyVoices();
     voices.forEach((v, i) => {
         const tier = tts.voiceQuality(v) || '—';
-        lines.push(`${String(i + 1).padStart(3, ' ')}. ${v.name} | ${v.lang} | ${tier}${v.default ? ' | default' : ''}`);
+        const hidden = !showNovelty && tts.isNoveltyVoice(v) ? ' | hidden (joke voice)' : '';
+        lines.push(`${String(i + 1).padStart(3, ' ')}. ${v.name} | ${v.lang} | ${tier}${v.default ? ' | default' : ''}${hidden}`);
         lines.push(`      ${v.voiceURI}`);
     });
     return lines;
@@ -3478,6 +3491,19 @@ function openSettings() {
     wireAuraTest(document.getElementById('testAuraPartnerVoiceBtn'), 'partner',
         () => pickAuraPartnerVoice(auraPartnerVoiceSelect && auraPartnerVoiceSelect.value),
         'Hello — in Practice Mode, this is the voice of the person you are talking to.');
+
+    const showNoveltyInput = document.getElementById('showNoveltyVoicesInput');
+    if (showNoveltyInput) {
+        showNoveltyInput.checked = storage.loadShowNoveltyVoices();
+        showNoveltyInput.onchange = () => {
+            storage.saveShowNoveltyVoices(showNoveltyInput.checked);
+            // Repopulate both pickers immediately: a setting whose effect you have to
+            // reopen Settings to see reads as a setting that did nothing.
+            populateVoiceSelect();
+            populatePartnerVoiceSelect();
+            renderVoiceList();
+        };
+    }
 
     voiceSelect.onchange = () => {
         const voiceURI = voiceSelect.value || null;

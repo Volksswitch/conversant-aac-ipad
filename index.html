@@ -367,6 +367,11 @@
                     <div class="setting-group">
                         <label for="voiceSelect">Voice</label>
                         <select id="voiceSelect"></select>
+                        <!-- This device's joke voices are hidden by default: on an
+                             iPad they are 19 of the 68 on offer, so they are mostly
+                             a longer scroll on the way to a real voice. Reversible,
+                             because someone may actually want Whisper. -->
+                        <label class="checkbox-label"><input type="checkbox" id="showNoveltyVoicesInput"> Show this device's joke voices (Bahh, Boing, Zarvox…)</label>
                         <button id="testVoiceBtn" type="button">Test</button>
                     </div>
                     <div class="setting-group">
